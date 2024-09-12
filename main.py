@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import openai
 import os
 import uuid
-import youtube_dl
+import yt_dlp  # yt-dlp로 변경
 from moviepy.editor import AudioFileClip
 from pathlib import Path
 from starlette.responses import JSONResponse
@@ -34,7 +34,7 @@ class YouTubeAudioRequest(BaseModel):
 def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(AUDIO_DIR, '%(id)s.%(ext)s'),
+        'outtmpl': os.path.join(AUDIO_DIR, '%(id)s.%(ext)s'),  # 파일 저장 경로
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -42,7 +42,7 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
         }]
     }
 
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # yt-dlp로 변경
         info = ydl.extract_info(youtube_url, download=True)
         video_id = info['id']
         audio_file = os.path.join(AUDIO_DIR, f"{video_id}.mp3")
@@ -71,7 +71,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # 수정된 모델 이름
+            model="gpt-4o",  # GPT-4o 모델 사용
             messages=[
                 {"role": "system", "content": "Summarize the following text"},
                 {"role": "user", "content": chunk}
