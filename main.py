@@ -64,7 +64,9 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
 
 # 타임코드 추가한 요약 텍스트 생성
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
-    openai.api_key = api_key
+    # OpenAI API 키 설정
+    openai.api_key = request.api_key
+
     summarized_text = ""
 
     for i, chunk in enumerate(text_chunks):
@@ -85,6 +87,10 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     # 인증키 확인
     if request.auth_key != REQUIRED_AUTH_KEY:
         raise HTTPException(status_code=403, detail="Invalid authentication key")
+    
+    # OpenAI API 키 설정
+    openai.api_key = request.api_key
+
 
     # 유튜브 음성을 다운로드하고 나누기
     try:
