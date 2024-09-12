@@ -2,5 +2,5 @@ fastapi[all]
 aiofiles
 openai
 pydantic
-youtube_dl
+yt-dlp
 moviepy
