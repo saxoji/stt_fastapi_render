@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import openai
 import os
 import uuid
-from pytube import YouTube  # pytube로 변경
+import yt_dlp  # yt-dlp로 변경
 from moviepy.editor import AudioFileClip
 from pathlib import Path
 from starlette.responses import JSONResponse
@@ -32,15 +32,21 @@ class YouTubeAudioRequest(BaseModel):
 
 # 유튜브에서 오디오를 다운로드하여 지정된 간격으로 나누기
 def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
-    # YouTube 객체 생성 및 오디오 스트림 다운로드
-    yt = YouTube(youtube_url)
-    audio_stream = yt.streams.filter(only_audio=True).first()
-    audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp4")  # mp4로 다운로드
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(AUDIO_DIR, '%(id)s.%(ext)s'),  # 파일 저장 경로
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
+    }
 
-    # 오디오 다운로드
-    audio_stream.download(output_path=AUDIO_DIR, filename=os.path.basename(audio_file))
-
-    # 오디오 파일 로드
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # yt-dlp로 변경
+        info = ydl.extract_info(youtube_url, download=True)
+        video_id = info['id']
+        audio_file = os.path.join(AUDIO_DIR, f"{video_id}.mp3")
+    
     audio_clip = AudioFileClip(audio_file)
     duration = audio_clip.duration
     interval_seconds = interval_minute * 60
@@ -52,7 +58,6 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
         audio_clip.subclip(start_time, min(start_time + interval_seconds, duration)).write_audiofile(chunk_file)
         chunk_files.append(chunk_file)
 
-    # 오디오 파일 삭제
     audio_clip.close()
     os.remove(audio_file)
     return chunk_files
@@ -66,7 +71,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",
+            model="gpt-4o",  # GPT-4o 모델 사용
             messages=[
                 {"role": "system", "content": "Summarize the following text"},
                 {"role": "user", "content": chunk}
