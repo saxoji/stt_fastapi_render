@@ -65,13 +65,13 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
 # 타임코드 추가한 요약 텍스트 생성
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
     # OpenAI API 키 설정
-    openai.api_key = request.api_key
+    openai.api_key = api_key
 
     summarized_text = ""
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",
+            model="gpt-4o",  # 수정된 모델 이름
             messages=[
                 {"role": "system", "content": "Summarize the following text"},
                 {"role": "user", "content": chunk}
@@ -90,7 +90,6 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     
     # OpenAI API 키 설정
     openai.api_key = request.api_key
-
 
     # 유튜브 음성을 다운로드하고 나누기
     try:
