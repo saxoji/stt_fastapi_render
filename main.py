@@ -1,17 +1,15 @@
+import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import openai
-import os
 import uuid
-import yt_dlp  # yt-dlp로 변경
+import yt_dlp
 from moviepy.editor import AudioFileClip
 from pathlib import Path
 from starlette.responses import JSONResponse
-import aiofiles
 import shutil
 from typing import List
-import time
 
 app = FastAPI()
 
@@ -30,11 +28,11 @@ class YouTubeAudioRequest(BaseModel):
     youtube_url: str
     interval_minute: int
 
-# 유튜브에서 오디오를 다운로드하여 지정된 간격으로 나누기
+# 유튜브에서 오디오를 다운로드하고 지정된 간격으로 나누기
 def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(AUDIO_DIR, '%(id)s.%(ext)s'),  # 파일 저장 경로
+        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),  # 파일 저장 경로
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -42,11 +40,12 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
         }]
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # yt-dlp로 변경
+    # yt-dlp를 사용하여 오디오 다운로드
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(youtube_url, download=True)
-        video_id = info['id']
-        audio_file = os.path.join(AUDIO_DIR, f"{video_id}.mp3")
-    
+        audio_file = os.path.join(AUDIO_DIR, f"{info['title']}.mp3")
+
+    # 다운로드한 오디오 파일을 지정된 간격으로 나누기
     audio_clip = AudioFileClip(audio_file)
     duration = audio_clip.duration
     interval_seconds = interval_minute * 60
@@ -64,16 +63,14 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
 
 # 타임코드 추가한 요약 텍스트 생성
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
-    # OpenAI API 키 설정
     openai.api_key = api_key
-
     summarized_text = ""
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # GPT-4o 모델 사용
+            model="gpt-4",  # 모델 설정
             messages=[
-                {"role": "system", "content": "Summarize the following text"},
+                {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
             ]
         )
@@ -88,9 +85,6 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     if request.auth_key != REQUIRED_AUTH_KEY:
         raise HTTPException(status_code=403, detail="Invalid authentication key")
     
-    # OpenAI API 키 설정
-    openai.api_key = request.api_key
-
     # 유튜브 음성을 다운로드하고 나누기
     try:
         audio_chunks = download_and_split_audio(request.youtube_url, request.interval_minute)
@@ -117,7 +111,6 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     # 텍스트 요약
     summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
 
-    # 클라이언트에 요약 텍스트 전송
     return JSONResponse(content={"summary_text": summary_text})
 
 if __name__ == "__main__":
