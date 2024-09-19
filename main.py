@@ -10,6 +10,8 @@ from pathlib import Path
 from starlette.responses import JSONResponse
 import shutil
 from typing import List
+import time
+import random
 
 app = FastAPI()
 
@@ -28,22 +30,44 @@ class YouTubeAudioRequest(BaseModel):
     youtube_url: str
     interval_minute: int
 
+# User-Agent 목록
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
+]
+
 # 유튜브에서 오디오를 다운로드하고 지정된 간격으로 나누기
 def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),  # 파일 저장 경로
+        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
-        }]
+        }],
+        'user_agent': random.choice(USER_AGENTS),
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
+        'quiet': True,
+        'no_warnings': True,
+        'default_search': 'auto',
+        'source_address': '0.0.0.0'
     }
 
-    # yt-dlp를 사용하여 오디오 다운로드
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(youtube_url, download=True)
-        audio_file = os.path.join(AUDIO_DIR, f"{info['title']}.mp3")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                audio_file = os.path.join(AUDIO_DIR, f"{info['title']}.mp3")
+            break
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise Exception(f"Failed to download after {max_retries} attempts: {str(e)}")
+            time.sleep(5)  # 재시도 전 5초 대기
 
     # 다운로드한 오디오 파일을 지정된 간격으로 나누기
     audio_clip = AudioFileClip(audio_file)
@@ -68,7 +92,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4",  # 모델 설정
+            model="gpt-4o",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
