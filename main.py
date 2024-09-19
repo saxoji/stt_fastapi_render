@@ -37,7 +37,12 @@ def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> Li
     # 영상 다운로드 옵션
     ydl_opts = {
         'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
-        'source_address': '13.228.225.19'  # source_address 유지
+        'no_check_certificate': True,
+        'ignoreerrors': False,
+        'quiet': True,
+        'no_warnings': True,
+        'force_ipv4': True,  # IPv4 강제 사용
+        'verbose': True
     }
 
     max_retries = 3
