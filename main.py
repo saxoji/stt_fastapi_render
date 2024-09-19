@@ -54,7 +54,7 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
         'quiet': True,
         'no_warnings': True,
         'default_search': 'auto',
-        'source_address': '0.0.0.0'
+        'source_address': '13.228.225.19'
     }
 
     max_retries = 3
