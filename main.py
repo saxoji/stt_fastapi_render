@@ -38,21 +38,24 @@ USER_AGENTS = [
 # 유튜브에서 오디오를 다운로드하고 지정된 간격으로 나누기
 def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),
-        'user_agent': random.choice(USER_AGENTS),
-        'no_check_certificate': True,
-        'ignoreerrors': False,
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': 'in_playlist',
-        'force_generic_extractor': True,
-        'source_address': '13.228.225.19'
+    'format': 'bestaudio/best',
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
+    'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),
+    'user_agent': random.choice(USER_AGENTS),
+    'no_check_certificate': True,
+    'ignoreerrors': False,
+    'quiet': True,
+    'no_warnings': True,
+    'extract_flat': 'in_playlist',
+    'force_generic_extractor': True,
+    'source_address': '13.228.225.19',
+    'geo_bypass': True,  # 지역 제한을 우회하는 옵션
+    'allow_unplayable_formats': True,  # 재생 불가 형식 허용
+    'noplaylist': True  # 플레이리스트가 아닌 개별 영상만 다운로드
     }
 
     max_retries = 3
