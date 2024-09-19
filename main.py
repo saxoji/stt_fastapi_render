@@ -30,20 +30,33 @@ class YouTubeAudioRequest(BaseModel):
     youtube_url: str
     interval_minute: int
 
+# User-Agent 목록
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
+]
 
 
 # 유튜브에서 영상을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
 def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     # 영상 다운로드 옵션
     ydl_opts = {
-        'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
-        'no_check_certificate': True,
-        'ignoreerrors': False,
-        'quiet': True,
-        'no_warnings': True,
-        'force_ipv4': True,  # IPv4 강제 사용
-        'verbose': True
-    }
+                'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
+                'no_check_certificate': True,
+                'ignoreerrors': False,
+                'quiet': True,
+                'no_warnings': True,
+                'force_ipv4': True,
+                'verbose': True,
+                'user_agent': random.choice(USER_AGENTS),
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate'
+                },
+            }
 
     max_retries = 3
     for attempt in range(max_retries):
