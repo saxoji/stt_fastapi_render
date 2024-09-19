@@ -36,28 +36,25 @@ USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
 ]
-#'user_agent': random.choice(USER_AGENTS),
-#'source_address': '54.254.162.138',
-
 
 # 유튜브에서 영상을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
 def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     # 영상 다운로드 옵션
     ydl_opts = {
-                'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
-                'no_check_certificate': True,
-                'ignoreerrors': False,
-                'quiet': True,
-                'no_warnings': True,
-                'force_ipv4': True,
-                'verbose': True,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate'
-                },
-            }
+        'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
+        'no_check_certificate': True,
+        'ignoreerrors': False,
+        'quiet': True,
+        'no_warnings': True,
+        'force_ipv4': True,
+        'verbose': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate'
+        },
+    }
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -132,7 +129,10 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
         with open(chunk_file, "rb") as audio_file:
             try:
-                transcript_response = openai.Audio.transcribe("whisper-1", audio_file)
+                transcript_response = openai.Audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
                 transcribed_texts.append(transcript_response['text'])
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
