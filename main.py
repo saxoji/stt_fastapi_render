@@ -6,9 +6,7 @@ import openai
 import uuid
 import yt_dlp
 from moviepy.editor import AudioFileClip
-from pathlib import Path
 from starlette.responses import JSONResponse
-import shutil
 from typing import List
 import time
 import random
@@ -41,19 +39,19 @@ USER_AGENTS = [
 def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
+        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),
         'user_agent': random.choice(USER_AGENTS),
-        'nocheckcertificate': True,
+        'no_check_certificate': True,
         'ignoreerrors': False,
-        'logtostderr': False,
         'quiet': True,
         'no_warnings': True,
-        'default_search': 'auto',
+        'extract_flat': 'in_playlist',
+        'force_generic_extractor': True,
         'source_address': '13.228.225.19'
     }
 
@@ -62,7 +60,9 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
-                audio_file = os.path.join(AUDIO_DIR, f"{info['title']}.mp3")
+                if info is None:
+                    raise Exception("Failed to extract video information")
+                audio_file = ydl.prepare_filename(info).rsplit(".", 1)[0] + ".mp3"
             break
         except Exception as e:
             if attempt == max_retries - 1:
@@ -78,7 +78,7 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
     # 오디오를 청크 단위로 자르기
     for start_time in range(0, int(duration), interval_seconds):
         chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-        audio_clip.subclip(start_time, min(start_time + interval_seconds, duration)).write_audiofile(chunk_file)
+        audio_clip.subclip(start_time, min(start_time + interval_seconds, duration)).write_audiofile(chunk_file, verbose=False, logger=None)
         chunk_files.append(chunk_file)
 
     audio_clip.close()
@@ -92,7 +92,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # 모델 설정
+            model="gpt-4",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
