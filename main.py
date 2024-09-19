@@ -15,10 +15,13 @@ app = FastAPI()
 # 인증키
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
 
-# Directory to save the audio files
+# Directory to save the files
 AUDIO_DIR = "audio"
+VIDEO_DIR = "video"
 if not os.path.exists(AUDIO_DIR):
     os.makedirs(AUDIO_DIR)
+if not os.path.exists(VIDEO_DIR):
+    os.makedirs(VIDEO_DIR)
 
 # 모델 정의
 class YouTubeAudioRequest(BaseModel):
@@ -33,30 +36,28 @@ USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
 ]
+#'user_agent': random.choice(USER_AGENTS),
+#'source_address': '54.254.162.138',
 
-# 유튜브에서 오디오만 다운로드하고 지정된 간격으로 나누기
-def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
-    # 오디오만 다운로드 옵션
+
+# 유튜브에서 영상을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
+def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
+    # 영상 다운로드 옵션
     ydl_opts = {
-        'format': 'bestaudio/best',  # 오디오만 다운로드
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': os.path.join(AUDIO_DIR, '%(title)s.%(ext)s'),
-        'no_check_certificate': True,
-        'ignoreerrors': False,
-        'quiet': True,
-        'no_warnings': True,
-        'force_ipv4': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate'
-        },
-    }
+                'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
+                'no_check_certificate': True,
+                'ignoreerrors': False,
+                'quiet': True,
+                'no_warnings': True,
+                'force_ipv4': True,
+                'verbose': True,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate'
+                },
+            }
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -65,15 +66,19 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
                 info = ydl.extract_info(youtube_url, download=True)
                 if info is None:
                     raise Exception("Failed to extract video information")
-                audio_file = ydl.prepare_filename(info)
+                video_file = ydl.prepare_filename(info)
             break
         except Exception as e:
             if attempt == max_retries - 1:
                 raise Exception(f"Failed to download after {max_retries} attempts: {str(e)}")
             time.sleep(5)  # 재시도 전 5초 대기
 
-    # 다운로드한 오디오 파일을 지정된 간격으로 나누기
-    audio_clip = AudioFileClip(audio_file)
+    # 영상에서 오디오 추출
+    audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+    audio_clip = AudioFileClip(video_file)
+    audio_clip.write_audiofile(audio_file)
+
+    # 오디오 파일을 지정된 간격으로 나누기
     duration = audio_clip.duration
     interval_seconds = interval_minute * 60
     chunk_files = []
@@ -84,7 +89,7 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
         chunk_files.append(chunk_file)
 
     audio_clip.close()
-    os.remove(audio_file)  # 원본 오디오 파일 삭제
+    os.remove(video_file)  # 원본 영상 파일 삭제
 
     return chunk_files
 
@@ -95,7 +100,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4",  # 모델 설정
+            model="gpt-4o",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
@@ -112,9 +117,9 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     if request.auth_key != REQUIRED_AUTH_KEY:
         raise HTTPException(status_code=403, detail="Invalid authentication key")
 
-    # 유튜브에서 오디오만 다운로드하고 나누기
+    # 유튜브 영상을 다운로드하고 오디오 추출 및 나누기
     try:
-        audio_chunks = download_and_split_audio(request.youtube_url, request.interval_minute)
+        audio_chunks = download_video_and_split_audio(request.youtube_url, request.interval_minute)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
