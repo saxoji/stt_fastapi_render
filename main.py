@@ -50,6 +50,7 @@ def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> Li
                 'force_ipv4': True,
                 'verbose': True,
                 'user_agent': random.choice(USER_AGENTS),
+                'source_address': '54.254.162.138',
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
