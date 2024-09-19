@@ -54,6 +54,7 @@ def download_and_split_audio(youtube_url: str, interval_minute: int) -> List[str
     'force_generic_extractor': True,
     'source_address': '13.228.225.19',
     'geo_bypass': True,  # 지역 제한을 우회하는 옵션
+    'verbose': True,
     'allow_unplayable_formats': True,  # 재생 불가 형식 허용
     'noplaylist': True  # 플레이리스트가 아닌 개별 영상만 다운로드
     }
