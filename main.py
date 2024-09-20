@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from openai import OpenAI
+import datetime
 
 app = FastAPI()
 
@@ -93,6 +94,10 @@ def download_video_and_split_audio(youtube_url: str, interval_minute: int, downl
 
     return chunk_files
 
+# hh:mm:ss 포맷으로 변환
+def seconds_to_timecode(seconds: int) -> str:
+    return str(datetime.timedelta(seconds=seconds))
+
 # 타임코드 추가한 요약 텍스트 생성
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
     client = OpenAI(api_key=api_key)  # OpenAI 클라이언트를 초기화할 때 API 키 전달
@@ -100,13 +105,13 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = client.chat.completions.create(  # 올바른 chat completion API 호출
-            model="gpt-4o",  # 모델 설정
+            model="gpt-4",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
             ]
         )
-        summary = response.choices[0].message.content
+        summary = response.choices[0].message.content  # 올바른 content 접근 방식
         summarized_text += f"{chunk_times[i]}: {summary}\n"
 
     return summarized_text
@@ -130,8 +135,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     transcribed_texts = []
     chunk_times = []
     for i, chunk_file in enumerate(audio_chunks):
-        start_time = i * request.interval_minute
-        chunk_times.append(f"{start_time}m - {start_time + request.interval_minute}m")
+        start_time_seconds = i * request.interval_minute * 60  # 초 단위로 청크 시작 시간 계산
+        chunk_times.append(seconds_to_timecode(start_time_seconds))  # hh:mm:ss 형식으로 변환
 
         with open(chunk_file, "rb") as audio_file:
             try:
