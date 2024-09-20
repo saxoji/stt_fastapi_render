@@ -99,7 +99,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
     summarized_text = ""
 
     for i, chunk in enumerate(text_chunks):
-        response = client.ChatCompletion.create(
+        response = client.chat.completions.create(  # 올바른 chat completion API 호출
             model="gpt-4",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
