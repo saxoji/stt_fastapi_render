@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from typing import List
 from openai import OpenAI
 import datetime
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI()
 
@@ -32,18 +34,18 @@ class YouTubeAudioRequest(BaseModel):
     downloader_api_key: str  # downloader_api_key로 수정
 
 # 유튜브 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
-def download_video_and_split_audio(youtube_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
+async def download_video_and_split_audio(youtube_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
     # 유튜브 영상 정보를 가져오기 위한 API URL과 인증 헤더
     api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
     api_headers = {
         'Authorization': f'Bearer {downloader_api_key}'  # 요청에서 받은 downloader_api_key 값을 사용
     }
-    
+
     # API 요청
     response = requests.get(f"{api_url}?id={youtube_url.split('v=')[-1]}", headers=api_headers)
     if response.status_code != 200:
         raise HTTPException(status_code=500, detail="Failed to retrieve video information from API")
-    
+
     # JSON 응답 파싱
     data = json.loads(response.text)
 
@@ -98,23 +100,58 @@ def download_video_and_split_audio(youtube_url: str, interval_minute: int, downl
 def seconds_to_timecode(seconds: int) -> str:
     return str(datetime.timedelta(seconds=seconds))
 
-# 타임코드 추가한 요약 텍스트 생성
+# 비동기로 텍스트 요약 처리
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
-    client = OpenAI(api_key=api_key)  # OpenAI 클라이언트를 초기화할 때 API 키 전달
+    client = OpenAI(api_key=api_key)
     summarized_text = ""
 
+    tasks = []
     for i, chunk in enumerate(text_chunks):
-        response = client.chat.completions.create(  # 올바른 chat completion API 호출
-            model="gpt-4",  # 모델 설정
-            messages=[
-                {"role": "system", "content": "Summarize the following text."},
-                {"role": "user", "content": chunk}
-            ]
+        task = asyncio.create_task(
+            client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "Summarize the following text."},
+                    {"role": "user", "content": chunk}
+                ]
+            )
         )
-        summary = response.choices[0].message.content  # 올바른 content 접근 방식
+        tasks.append(task)
+
+    responses = await asyncio.gather(*tasks)
+
+    for i, response in enumerate(responses):
+        summary = response.choices[0].message.content
         summarized_text += f"{chunk_times[i]}: {summary}\n"
 
     return summarized_text
+
+# 비동기로 오디오 파일을 처리하고 STT 수행
+async def transcribe_audio_chunks(client, audio_chunks, interval_minute):
+    transcribed_texts = []
+    chunk_times = []
+
+    with ThreadPoolExecutor() as pool:
+        loop = asyncio.get_event_loop()
+        for i, chunk_file in enumerate(audio_chunks):
+            start_time_seconds = i * interval_minute * 60  # 초 단위로 청크 시작 시간 계산
+            chunk_times.append(seconds_to_timecode(start_time_seconds))  # hh:mm:ss 형식으로 변환
+
+            # 비동기로 파일 처리 및 전사 요청
+            async with pool:
+                transcript_response = await loop.run_in_executor(
+                    pool, lambda: client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=open(chunk_file, "rb"),
+                        response_format="text"
+                    )
+                )
+                transcribed_texts.append(transcript_response)
+
+            # 추출된 음성 파일 삭제
+            os.remove(chunk_file)
+
+    return transcribed_texts, chunk_times
 
 @app.post("/process_youtube_audio/")
 async def process_youtube_audio(request: YouTubeAudioRequest):
@@ -124,40 +161,23 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
     # 유튜브 영상을 다운로드하고 오디오 추출 및 나누기
     try:
-        audio_chunks = download_video_and_split_audio(request.youtube_url, request.interval_minute, request.downloader_api_key)
+        audio_chunks = await download_video_and_split_audio(request.youtube_url, request.interval_minute, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
     # OpenAI 클라이언트 초기화
     client = OpenAI(api_key=request.api_key)
 
-    # 각 청크에 대해 STT 수행
-    transcribed_texts = []
-    chunk_times = []
-    for i, chunk_file in enumerate(audio_chunks):
-        start_time_seconds = i * request.interval_minute * 60  # 초 단위로 청크 시작 시간 계산
-        chunk_times.append(seconds_to_timecode(start_time_seconds))  # hh:mm:ss 형식으로 변환
-
-        with open(chunk_file, "rb") as audio_file:
-            try:
-                # 최신 OpenAI 클라이언트를 사용하여 오디오 전사, response_format='text'로 설정
-                transcript_response = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="text"  # response_format을 'text'로 설정
-                )
-                transcribed_texts.append(transcript_response)  # 텍스트를 바로 저장
-            except Exception as e:
-                print(f"Error transcribing chunk {i}: {str(e)}. Skipping this chunk.")
-                continue
-        
-        # 추출된 음성 파일 삭제
-        os.remove(chunk_file)
+    # 비동기적으로 STT 처리
+    try:
+        transcribed_texts, chunk_times = await transcribe_audio_chunks(client, audio_chunks, request.interval_minute)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
 
     # 텍스트 요약
     summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
 
-    return summary_text  # JSON 포맷이 아닌, 그냥 텍스트로 리턴
+    return summary_text
 
 if __name__ == "__main__":
     import uvicorn
