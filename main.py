@@ -101,7 +101,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4",  # 모델 설정
+            model="gpt-4o",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
@@ -133,7 +133,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
         with open(chunk_file, "rb") as audio_file:
             try:
-                transcript_response = openai.Audio.transcriptions.create(
+                # OpenAI API를 사용하여 오디오 전사 (최신 방식)
+                transcript_response = openai.Audio.transcribe(
                     model="whisper-1",
                     file=audio_file
                 )
