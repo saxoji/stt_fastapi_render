@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from typing import List
-import openai
+from openai import OpenAI  # 최신 OpenAI 클라이언트 사용
 
 app = FastAPI()
 
@@ -101,7 +101,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # 모델 설정
+            model="gpt-4",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
@@ -124,6 +124,9 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
+    # OpenAI 클라이언트 초기화
+    client = OpenAI()
+
     # 각 청크에 대해 STT 수행
     transcribed_texts = []
     chunk_times = []
@@ -133,8 +136,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
         with open(chunk_file, "rb") as audio_file:
             try:
-                # OpenAI API를 사용하여 오디오 전사 (최신 방식)
-                transcript_response = openai.Audio.transcribe(
+                # 최신 OpenAI 클라이언트를 사용하여 오디오 전사
+                transcript_response = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file
                 )
