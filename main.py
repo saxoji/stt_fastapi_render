@@ -11,6 +11,7 @@ import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import aiohttp
+import openai  # openai 모듈을 임포트
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -148,7 +149,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
     return summarized_text
 
 # 비동기로 오디오 파일을 처리하고 STT 수행
-async def transcribe_audio_chunks(client, audio_chunks, interval_minute):
+async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_minute):
     transcribed_texts = []
     chunk_times = []
 
@@ -160,13 +161,12 @@ async def transcribe_audio_chunks(client, audio_chunks, interval_minute):
 
             # 비동기로 파일 처리 및 전사 요청
             transcript_response = await loop.run_in_executor(
-                pool, lambda: client.audio.transcriptions.create(
+                pool, lambda: openai.Audio.transcribe(
                     model="whisper-1",
-                    file=open(chunk_file, "rb"),
-                    response_format="text"
+                    file=open(chunk_file, "rb")
                 )
             )
-            transcribed_texts.append(transcript_response)
+            transcribed_texts.append(transcript_response['text'])
 
             # 추출된 음성 파일 삭제
             os.remove(chunk_file)
@@ -185,12 +185,9 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
-    # OpenAI 클라이언트 초기화
-    client = OpenAI(api_key=request.api_key)
-
     # 비동기적으로 STT 처리
     try:
-        transcribed_texts, chunk_times = await transcribe_audio_chunks(client, audio_chunks, request.interval_minute)
+        transcribed_texts, chunk_times = await transcribe_audio_chunks(request.api_key, audio_chunks, request.interval_minute)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
 
