@@ -12,7 +12,23 @@ import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-app = FastAPI()
+SWAGGER_HEADERS = {
+    "title": "LINKBRICKS HORIZON-AI YOUTUBE TRANSCRIPTION API ENGINE",
+    "version": "100.100.100",
+    "description": "## 영상 내용 다국어 음성 추출엔진 \n - API Swagger  \n - ",
+    "contact": {
+        "name": "Linkbricks Horizon AI",
+        "url": "https://www.linkbricks.com",
+        "email": "contact@linkbricks.com",
+        "license_info": {
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT",
+        },
+    },
+}
+
+
+app = FastAPI(**SWAGGER_HEADERS)
 
 # 인증키
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
