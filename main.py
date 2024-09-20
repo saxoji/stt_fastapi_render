@@ -38,6 +38,7 @@ USER_AGENTS = [
 ]
 
 # 'proxy': 'http://your_proxy_address:port',  # 프록시 주소 및 포트
+# 'force_ipv4': True,
 # 유튜브에서 영상을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
 def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
     # 영상 다운로드 옵션
@@ -47,7 +48,6 @@ def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> Li
         'ignoreerrors': False,
         'quiet': True,
         'no_warnings': True,
-        'force_ipv4': True,
         'verbose': True,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
