@@ -13,9 +13,9 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 SWAGGER_HEADERS = {
-    "title": "LINKBRICKS HORIZON-AI YOUTUBE TRANSCRIPTION API ENGINE",
+    "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
     "version": "100.100.100",
-    "description": "## 영상 내용 다국어 음성 추출엔진 \n - API Swagger  \n - ",
+    "description": "## 영상 내용 다국어 음성 추출 및 텍스트 변환 엔진 \n - API Swagger  \n - STT",
     "contact": {
         "name": "Linkbricks Horizon AI",
         "url": "https://www.linkbricks.com",
