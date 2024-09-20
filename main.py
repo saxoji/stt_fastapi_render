@@ -11,7 +11,7 @@ import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import aiohttp
-import openai  # openai 모듈을 임포트
+import openai
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -153,23 +153,35 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_minute):
     transcribed_texts = []
     chunk_times = []
 
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor() as pool:
+    async with aiohttp.ClientSession() as session:
+        tasks = []
         for i, chunk_file in enumerate(audio_chunks):
             start_time_seconds = i * interval_minute * 60  # 초 단위로 청크 시작 시간 계산
             chunk_times.append(seconds_to_timecode(start_time_seconds))  # hh:mm:ss 형식으로 변환
 
-            # 비동기로 파일 처리 및 전사 요청
-            transcript_response = await loop.run_in_executor(
-                pool, lambda: openai.Audio.transcribe(
-                    model="whisper-1",
-                    file=open(chunk_file, "rb")
+            # 비동기로 Whisper API에 오디오 파일을 전송합니다.
+            task = asyncio.create_task(
+                session.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    data={
+                        "model": "whisper-1",
+                        "file": open(chunk_file, "rb"),
+                        "response_format": "json"
+                    }
                 )
             )
-            transcribed_texts.append(transcript_response['text'])
+            tasks.append(task)
+
+        # 모든 비동기 작업이 완료될 때까지 기다립니다.
+        responses = await asyncio.gather(*tasks)
+
+        for i, response in enumerate(responses):
+            result = await response.json()
+            transcribed_texts.append(result['text'])
 
             # 추출된 음성 파일 삭제
-            os.remove(chunk_file)
+            os.remove(audio_chunks[i])
 
     return transcribed_texts, chunk_times
 
