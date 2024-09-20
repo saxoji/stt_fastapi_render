@@ -96,11 +96,11 @@ def download_video_and_split_audio(youtube_url: str, interval_minute: int, downl
 
 # 타임코드 추가한 요약 텍스트 생성
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
-    openai.api_key = api_key
+    client = OpenAI(api_key=api_key)  # OpenAI 클라이언트를 초기화할 때 API 키 전달
     summarized_text = ""
 
     for i, chunk in enumerate(text_chunks):
-        response = openai.ChatCompletion.create(
+        response = client.ChatCompletion.create(
             model="gpt-4",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
@@ -125,7 +125,7 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
     # OpenAI 클라이언트 초기화
-    client = OpenAI()
+    client = OpenAI(api_key=request.api_key)
 
     # 각 청크에 대해 STT 수행
     transcribed_texts = []
