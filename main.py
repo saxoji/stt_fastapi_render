@@ -6,9 +6,8 @@ import json
 from moviepy.editor import AudioFileClip
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from starlette.responses import JSONResponse
 from typing import List
-from openai import OpenAI  # 최신 OpenAI 클라이언트 사용
+from openai import OpenAI
 
 app = FastAPI()
 
@@ -136,14 +135,16 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
         with open(chunk_file, "rb") as audio_file:
             try:
-                # 최신 OpenAI 클라이언트를 사용하여 오디오 전사
+                # 최신 OpenAI 클라이언트를 사용하여 오디오 전사, response_format='text'로 설정
                 transcript_response = client.audio.transcriptions.create(
                     model="whisper-1",
-                    file=audio_file
+                    file=audio_file,
+                    response_format="text"  # response_format을 'text'로 설정
                 )
-                transcribed_texts.append(transcript_response['text'])
+                transcribed_texts.append(transcript_response)  # 텍스트를 바로 저장
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
+                print(f"Error transcribing chunk {i}: {str(e)}. Skipping this chunk.")
+                continue
         
         # 추출된 음성 파일 삭제
         os.remove(chunk_file)
@@ -151,7 +152,7 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     # 텍스트 요약
     summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
 
-    return JSONResponse(content={"summary_text": summary_text})
+    return summary_text  # JSON 포맷이 아닌, 그냥 텍스트로 리턴
 
 if __name__ == "__main__":
     import uvicorn
