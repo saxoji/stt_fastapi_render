@@ -130,7 +130,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
                     json={
                         "model": "gpt-4o",
                         "messages": [
-                            {"role": "system", "content": "Summarize the following text."},
+                            {"role": "system", "content": "Summarize the following youtube video transcription text without any your comments."},
                             {"role": "user", "content": chunk}
                         ]
                     },
