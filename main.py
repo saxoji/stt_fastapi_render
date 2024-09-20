@@ -109,7 +109,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
     for i, chunk in enumerate(text_chunks):
         task = asyncio.create_task(
             client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Summarize the following text."},
                     {"role": "user", "content": chunk}
