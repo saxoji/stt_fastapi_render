@@ -7,10 +7,10 @@ from moviepy.editor import AudioFileClip
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
-from openai import OpenAI
 import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import aiohttp
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -26,7 +26,6 @@ SWAGGER_HEADERS = {
         },
     },
 }
-
 
 app = FastAPI(**SWAGGER_HEADERS)
 
@@ -118,27 +117,33 @@ def seconds_to_timecode(seconds: int) -> str:
 
 # 비동기로 텍스트 요약 처리
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
-    client = OpenAI(api_key=api_key)
     summarized_text = ""
 
-    tasks = []
-    for i, chunk in enumerate(text_chunks):
-        task = asyncio.create_task(
-            client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Summarize the following text."},
-                    {"role": "user", "content": chunk}
-                ]
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for i, chunk in enumerate(text_chunks):
+            # OpenAI API에 비동기 요청을 보냅니다.
+            task = asyncio.create_task(
+                session.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    json={
+                        "model": "gpt-4o",
+                        "messages": [
+                            {"role": "system", "content": "Summarize the following text."},
+                            {"role": "user", "content": chunk}
+                        ]
+                    },
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
             )
-        )
-        tasks.append(task)
+            tasks.append(task)
 
-    responses = await asyncio.gather(*tasks)
+        responses = await asyncio.gather(*tasks)
 
-    for i, response in enumerate(responses):
-        summary = response.choices[0].message.content
-        summarized_text += f"{chunk_times[i]}: {summary}\n"
+        for i, response in enumerate(responses):
+            result = await response.json()
+            summary = result['choices'][0]['message']['content']
+            summarized_text += f"{chunk_times[i]}: {summary}\n"
 
     return summarized_text
 
