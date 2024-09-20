@@ -1,5 +1,6 @@
 fastapi[all]
 aiofiles
+aiohttp
 openai
 pydantic
 yt-dlp
