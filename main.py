@@ -1,8 +1,8 @@
 import os
 import uuid
 import time
-import random
-import yt_dlp
+import requests
+import json
 from moviepy.editor import AudioFileClip
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -29,47 +29,50 @@ class YouTubeAudioRequest(BaseModel):
     auth_key: str
     youtube_url: str
     interval_minute: int
+    downloader_api_key: str  # downloader_api_key로 수정
 
-# User-Agent 목록
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
-]
-
-# 'proxy': 'http://your_proxy_address:port',  # 프록시 주소 및 포트
-# 'force_ipv4': True,
-# 유튜브에서 영상을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
-def download_video_and_split_audio(youtube_url: str, interval_minute: int) -> List[str]:
-    # 영상 다운로드 옵션
-    ydl_opts = {
-        'outtmpl': os.path.join(VIDEO_DIR, '%(title)s.%(ext)s'),
-        'no_check_certificate': True,
-        'ignoreerrors': False,
-        'quiet': True,
-        'no_warnings': True,
-        'verbose': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate'
-        },
+# 유튜브 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
+def download_video_and_split_audio(youtube_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
+    # 유튜브 영상 정보를 가져오기 위한 API URL과 인증 헤더
+    api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
+    api_headers = {
+        'Authorization': f'Bearer {downloader_api_key}'  # 요청에서 받은 downloader_api_key 값을 사용
     }
+    
+    # API 요청
+    response = requests.get(f"{api_url}?id={youtube_url.split('v=')[-1]}", headers=api_headers)
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to retrieve video information from API")
+    
+    # JSON 응답 파싱
+    data = json.loads(response.text)
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(youtube_url, download=True)
-                if info is None:
-                    raise Exception("Failed to extract video information")
-                video_file = ydl.prepare_filename(info)
-            break
-        except Exception as e:
-            if attempt == max_retries - 1:
-                raise Exception(f"Failed to download after {max_retries} attempts: {str(e)}")
-            time.sleep(5)  # 재시도 전 5초 대기
+    # 가장 작은 해상도의 MP4 파일 찾기
+    smallest_resolution = None
+    smallest_mp4_url = None
+
+    for format in data.get('formats', []):
+        if format.get('mimeType', '').startswith('video/mp4'):  # mp4 파일 필터링
+            width = format.get('width')
+            height = format.get('height')
+            if width and height:
+                if smallest_resolution is None or (width * height) < (smallest_resolution[0] * smallest_resolution[1]):
+                    smallest_resolution = (width, height)
+                    smallest_mp4_url = format.get('url')
+
+    # 가장 작은 해상도의 mp4 파일 다운로드
+    if smallest_mp4_url:
+        print(f"가장 작은 해상도 MP4 파일 다운로드 링크: {smallest_mp4_url} (해상도: {smallest_resolution[0]}x{smallest_resolution[1]})")
+        
+        # MP4 파일 다운로드
+        video_response = requests.get(smallest_mp4_url, stream=True)
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
+                if chunk:
+                    file.write(chunk)
+    else:
+        raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file")
 
     # 영상에서 오디오 추출
     audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
@@ -98,7 +101,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     for i, chunk in enumerate(text_chunks):
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # 모델 설정
+            model="gpt-4",  # 모델 설정
             messages=[
                 {"role": "system", "content": "Summarize the following text."},
                 {"role": "user", "content": chunk}
@@ -117,7 +120,7 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
     # 유튜브 영상을 다운로드하고 오디오 추출 및 나누기
     try:
-        audio_chunks = download_video_and_split_audio(request.youtube_url, request.interval_minute)
+        audio_chunks = download_video_and_split_audio(request.youtube_url, request.interval_minute, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
