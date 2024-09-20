@@ -131,22 +131,21 @@ async def transcribe_audio_chunks(client, audio_chunks, interval_minute):
     transcribed_texts = []
     chunk_times = []
 
+    loop = asyncio.get_event_loop()
     with ThreadPoolExecutor() as pool:
-        loop = asyncio.get_event_loop()
         for i, chunk_file in enumerate(audio_chunks):
             start_time_seconds = i * interval_minute * 60  # 초 단위로 청크 시작 시간 계산
             chunk_times.append(seconds_to_timecode(start_time_seconds))  # hh:mm:ss 형식으로 변환
 
             # 비동기로 파일 처리 및 전사 요청
-            async with pool:
-                transcript_response = await loop.run_in_executor(
-                    pool, lambda: client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=open(chunk_file, "rb"),
-                        response_format="text"
-                    )
+            transcript_response = await loop.run_in_executor(
+                pool, lambda: client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=open(chunk_file, "rb"),
+                    response_format="text"
                 )
-                transcribed_texts.append(transcript_response)
+            )
+            transcribed_texts.append(transcript_response)
 
             # 추출된 음성 파일 삭제
             os.remove(chunk_file)
