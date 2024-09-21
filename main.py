@@ -16,7 +16,6 @@ SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
     "version": "100.100.100",
     "description": "## 영상 내용 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - Multilingual VIDEO STT \n - MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n - YOUTUBE",
-     "favicon_url": "https://www.linkbricks.com/wp-content/uploads/2022/03/cropped-favicon-512-192x192.png",
     "contact": {
         "name": "Linkbricks Horizon AI",
         "url": "https://www.linkbricks.com",
