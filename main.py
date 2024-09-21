@@ -1,6 +1,5 @@
 import os
 import uuid
-import time
 import requests
 import json
 from moviepy.editor import AudioFileClip
@@ -16,7 +15,8 @@ import openai
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
     "version": "100.100.100",
-    "description": "## 영상 내용 다국어 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - STT",
+    "description": "## 영상 내용 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - Multilingual VIDEO STT \n - MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n - YOUTUBE",
+     "favicon_url": "https://www.linkbricks.com/wp-content/uploads/2022/03/cropped-favicon-512-192x192.png",
     "contact": {
         "name": "Linkbricks Horizon AI",
         "url": "https://www.linkbricks.com",
@@ -45,46 +45,68 @@ if not os.path.exists(VIDEO_DIR):
 class YouTubeAudioRequest(BaseModel):
     api_key: str
     auth_key: str
-    youtube_url: str
+    video_url: str  # youtube_url에서 video_url로 수정
     interval_minute: int
-    downloader_api_key: str  # downloader_api_key로 수정
-    summary_flag: int  # summary_flag 추가
+    downloader_api_key: str
+    summary_flag: int
+
+# 유튜브 영상인지 확인하는 함수
+def is_youtube_url(url: str) -> bool:
+    return "youtube.com" in url or "youtu.be" in url
 
 # 유튜브 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
-async def download_video_and_split_audio(youtube_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
-    api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
-    api_headers = {
-        'Authorization': f'Bearer {downloader_api_key}'
-    }
+async def download_video_and_split_audio(video_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
+    if is_youtube_url(video_url):
+        # 유튜브 영상 처리
+        api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
 
-    response = requests.get(f"{api_url}?id={youtube_url.split('v=')[-1]}", headers=api_headers)
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to retrieve video information from API")
+        response = requests.get(f"{api_url}?id={video_url.split('v=')[-1]}", headers=api_headers)
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="Failed to retrieve video information from API")
 
-    data = json.loads(response.text)
+        data = json.loads(response.text)
 
-    smallest_resolution = None
-    smallest_mp4_url = None
+        smallest_resolution = None
+        smallest_mp4_url = None
 
-    for format in data.get('formats', []):
-        if format.get('mimeType', '').startswith('video/mp4'):
-            width = format.get('width')
-            height = format.get('height')
-            if width and height:
-                if smallest_resolution is None or (width * height) < (smallest_resolution[0] * smallest_resolution[1]):
-                    smallest_resolution = (width, height)
-                    smallest_mp4_url = format.get('url')
+        for format in data.get('formats', []):
+            if format.get('mimeType', '').startswith('video/mp4'):
+                width = format.get('width')
+                height = format.get('height')
+                if width and height:
+                    if smallest_resolution is None or (width * height) < (smallest_resolution[0] * smallest_resolution[1]):
+                        smallest_resolution = (width, height)
+                        smallest_mp4_url = format.get('url')
 
-    if smallest_mp4_url:
-        video_response = requests.get(smallest_mp4_url, stream=True)
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        if smallest_mp4_url:
+            video_response = requests.get(smallest_mp4_url, stream=True)
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+        else:
+            raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file")
+
+    else:
+        # 일반적인 웹의 동영상 파일을 처리 (확장자를 제한하지 않음)
+        video_response = requests.get(video_url, stream=True)
+        if video_response.status_code != 200:
+            raise HTTPException(status_code=500, detail="Failed to download video file from the provided URL")
+        
+        # 파일 확장자를 유지하여 저장
+        video_file_extension = video_url.split('.')[-1]
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.{video_file_extension}")
+        
         with open(video_file, 'wb') as file:
             for chunk in video_response.iter_content(chunk_size=1024):
                 if chunk:
                     file.write(chunk)
-    else:
-        raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file")
 
+    # 영상에서 오디오 추출
     audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
     audio_clip = AudioFileClip(video_file)
     audio_clip.write_audiofile(audio_file)
@@ -177,7 +199,7 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         raise HTTPException(status_code=403, detail="Invalid authentication key")
 
     try:
-        audio_chunks = await download_video_and_split_audio(request.youtube_url, request.interval_minute, request.downloader_api_key)
+        audio_chunks = await download_video_and_split_audio(request.video_url, request.interval_minute, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
