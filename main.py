@@ -53,6 +53,25 @@ class YouTubeAudioRequest(BaseModel):
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
 
+# 유튜브 URL을 표준 형식으로 변환하는 함수
+def normalize_youtube_url(video_url: str) -> str:
+    # youtu.be 형식
+    if "youtu.be" in video_url:
+        video_id = video_url.split('/')[-1].split('?')[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    
+    # youtube.com/embed 형식
+    if "youtube.com/embed" in video_url:
+        video_id = video_url.split('/')[-1].split('?')[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    
+    # youtube.com/watch 형식 (이미 표준화된 URL)
+    if "youtube.com/watch" in video_url:
+        return video_url.split('&')[0]  # `&`로 이어지는 추가 쿼리 매개변수 제거
+    
+    # 예상치 못한 형식은 예외 처리
+    raise ValueError("Invalid YouTube URL format")
+
 # 유튜브 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
 async def download_video_and_split_audio(video_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
     if is_youtube_url(video_url):
@@ -198,7 +217,10 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         raise HTTPException(status_code=403, detail="Invalid authentication key")
 
     try:
-        audio_chunks = await download_video_and_split_audio(request.video_url, request.interval_minute, request.downloader_api_key)
+        # 유튜브 URL 표준화 처리
+        normalized_video_url = normalize_youtube_url(request.video_url)
+        
+        audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_minute, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
