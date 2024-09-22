@@ -45,7 +45,7 @@ class YouTubeAudioRequest(BaseModel):
     api_key: str
     auth_key: str
     video_url: str  # youtube_url에서 video_url로 수정
-    interval_minute: int
+    interval_seconds: int  # 초 단위로 변경
     downloader_api_key: str
     summary_flag: int
 
@@ -73,7 +73,7 @@ def normalize_youtube_url(video_url: str) -> str:
     raise ValueError("Invalid YouTube URL format")
 
 # 유튜브 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
-async def download_video_and_split_audio(video_url: str, interval_minute: int, downloader_api_key: str) -> List[str]:
+async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str) -> List[str]:
     if is_youtube_url(video_url):
         # 유튜브 영상 처리
         api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
@@ -130,7 +130,6 @@ async def download_video_and_split_audio(video_url: str, interval_minute: int, d
     audio_clip.write_audiofile(audio_file)
 
     duration = audio_clip.duration
-    interval_seconds = interval_minute * 60
     chunk_files = []
 
     for start_time in range(0, int(duration), interval_seconds):
@@ -158,7 +157,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
                 session.post(
                     "https://api.openai.com/v1/chat/completions",
                     json={
-                        "model": "gpt-4o",
+                        "model": "gpt-4",
                         "messages": [
                             {"role": "system", "content": "Summarize the following youtube video transcription text without any your comments."},
                             {"role": "user", "content": chunk}
@@ -179,14 +178,14 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
     return summarized_text
 
 # 비동기로 오디오 파일을 처리하고 STT 수행
-async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_minute):
+async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
     transcribed_texts = []
     chunk_times = []
 
     async with aiohttp.ClientSession() as session:
         tasks = []
         for i, chunk_file in enumerate(audio_chunks):
-            start_time_seconds = i * interval_minute * 60
+            start_time_seconds = i * interval_seconds
             chunk_times.append(seconds_to_timecode(start_time_seconds))
 
             task = asyncio.create_task(
@@ -220,12 +219,12 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         # 유튜브 URL 표준화 처리
         normalized_video_url = normalize_youtube_url(request.video_url)
         
-        audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_minute, request.downloader_api_key)
+        audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
     try:
-        transcribed_texts, chunk_times = await transcribe_audio_chunks(request.api_key, audio_chunks, request.interval_minute)
+        transcribed_texts, chunk_times = await transcribe_audio_chunks(request.api_key, audio_chunks, request.interval_seconds)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
 
