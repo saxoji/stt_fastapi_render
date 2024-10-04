@@ -22,8 +22,8 @@ SWAGGER_HEADERS = {
         "url": "https://www.linkbricks.com",
         "email": "contact@linkbricks.com",
         "license_info": {
-            "name": "GNU GPL 3.0",
-            "url": "https://www.gnu.org/licenses/gpl-3.0.html",
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT",
         },
     },
 }
@@ -300,6 +300,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
         return {"summary": summary_text}
     else:
+        if len(audio_chunks) == 1 and isinstance(audio_chunks[0], str):
+            return {"transcription": audio_chunks[0]}
         full_transcription = "\n".join([f"{chunk_times[i]}: {transcribed_texts[i]}" for i in range(len(transcribed_texts))])
         return {"transcription": full_transcription}
 
