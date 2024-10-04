@@ -11,6 +11,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import aiohttp
 import openai
+from pydub import AudioSegment, silence
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -48,6 +49,7 @@ class YouTubeAudioRequest(BaseModel):
     interval_seconds: int  # 초 단위로 변경
     downloader_api_key: str
     summary_flag: int
+    chunking_method: str  # "interval" 또는 "silence"
 
 # 유튜브 영상인지 확인하는 함수
 def is_youtube_url(url: str) -> bool:
@@ -82,7 +84,7 @@ def normalize_youtube_url(video_url: str) -> str:
     raise ValueError("Invalid YouTube URL format")
 
 # 유튜브 또는 틱톡 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
-async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str) -> List[str]:
+async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str) -> List[str]:
     if is_youtube_url(video_url):
         # 유튜브 영상 처리
         api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
@@ -143,10 +145,10 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file for TikTok video")
 
     else:
-        # 일반적인 웹의 동영상 파일을 처리 (확장자를 제한하지 않음)
+        # 일반적인 웹의 동영상 파일 또는 mp3 처리
         video_response = requests.get(video_url, stream=True)
         if video_response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to download video file from the provided URL")
+            raise HTTPException(status_code=500, detail="Failed to download video or audio file from the provided URL")
         
         # 파일 확장자를 유지하여 저장
         video_file_extension = video_url.split('.')[-1]
@@ -157,22 +159,39 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 if chunk:
                     file.write(chunk)
 
-    # 영상에서 오디오 추출
-    audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-    audio_clip = AudioFileClip(video_file)
-    audio_clip.write_audiofile(audio_file)
+    # 영상에서 오디오 추출 (영상 파일인 경우만)
+    if video_file_extension in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
+        audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+        audio_clip = AudioFileClip(video_file)
+        audio_clip.write_audiofile(audio_file)
+        audio_clip.close()
+        os.remove(video_file)
+    else:
+        # MP3 파일인 경우 이미 오디오 파일이므로 그대로 사용
+        audio_file = video_file
 
-    duration = audio_clip.duration
+    # 오디오 파일을 PyDub로 불러오기
+    audio = AudioSegment.from_file(audio_file)
     chunk_files = []
 
-    for start_time in range(0, int(duration), interval_seconds):
-        chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-        audio_clip.subclip(start_time, min(start_time + interval_seconds, duration)).write_audiofile(chunk_file, verbose=False, logger=None)
-        chunk_files.append(chunk_file)
+    if chunking_method == "silence":
+        # 무음 구간을 기준으로 오디오 청킹
+        chunks = silence.split_on_silence(audio, min_silence_len=500, silence_thresh=audio.dBFS-14, keep_silence=250)
+        for i, chunk in enumerate(chunks):
+            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+            chunk.export(chunk_file, format="mp3")
+            chunk_files.append(chunk_file)
+    elif chunking_method == "interval":
+        # 지정된 간격으로 오디오 청킹
+        duration = len(audio) / 1000  # PyDub에서 길이는 밀리초 단위
+        for start_time in range(0, int(duration), interval_seconds):
+            chunk = audio[start_time * 1000:min((start_time + interval_seconds) * 1000, len(audio))]
+            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+            chunk.export(chunk_file, format="mp3")
+            chunk_files.append(chunk_file)
 
-    audio_clip.close()
-    os.remove(video_file)
-
+    os.remove(audio_file)
+    
     return chunk_files
 
 # hh:mm:ss 포맷으로 변환
@@ -255,7 +274,7 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         else:
             normalized_video_url = request.video_url
         
-        audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key)
+        audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key, request.chunking_method)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
