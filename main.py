@@ -13,22 +13,30 @@ import aiohttp
 import openai
 from pydub import AudioSegment, silence
 
-SWAGGER_HEADERS = {
-    "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
-    "version": "100.100.100",
-    "description": "## 영상 내용 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - Multilingual VIDEO STT \n - MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n - YOUTUBE, TIKTOK",
-    "contact": {
+app = FastAPI()
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title="LINKBRICKS HORIZON-AI STT API ENGINE",
+        version="100.100.100",
+        description="## 영상 내용 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - Multilingual VIDEO STT \n - MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n - YOUTUBE, TIKTOK",
+        routes=app.routes,
+    )
+    openapi_schema["info"]["contact"] = {
         "name": "Linkbricks Horizon AI",
         "url": "https://www.linkbricks.com",
-        "email": "contact@linkbricks.com",
-        "license_info": {
-            "name": "MIT",
-            "url": "https://opensource.org/licenses/MIT",
-        },
-    },
-}
+        "email": "contact@linkbricks.com"
+    }
+    openapi_schema["info"]["license"] = {
+        "name": "GNU GPL 3.0",
+        "url": "https://www.gnu.org/licenses/gpl-3.0.html",
+    }
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
 
-app = FastAPI(**SWAGGER_HEADERS)
+app.openapi = custom_openapi
 
 # 인증키
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
