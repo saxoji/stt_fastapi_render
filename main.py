@@ -100,6 +100,10 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
 
         data = json.loads(response.text)
 
+        # 특정 지역에서 제한된 영상 처리
+        if data.get('status') == 'fail' and 'description' in data:
+            return [data['description'] + "\n[해당 동영상은 저작권자의 요청으로 저작권자가 입력한 내용만 출력합니다]"]
+
         smallest_resolution = None
         smallest_mp4_url = None
 
@@ -279,6 +283,11 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
             normalized_video_url = request.video_url
         
         audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key, request.chunking_method)
+        
+        # 특정 지역 제한된 영상의 경우 description으로 바로 반환
+        if len(audio_chunks) == 1 and isinstance(audio_chunks[0], str):
+            return {"summary": audio_chunks[0]}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
 
