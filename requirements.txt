@@ -6,3 +6,4 @@ pydantic
 yt-dlp
 moviepy
 pytube
+pydub
