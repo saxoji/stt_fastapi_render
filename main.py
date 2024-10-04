@@ -85,6 +85,8 @@ def normalize_youtube_url(video_url: str) -> str:
 
 # 유튜브 또는 틱톡 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str) -> List[str]:
+    video_file_extension = None
+
     if is_youtube_url(video_url):
         # 유튜브 영상 처리
         api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
@@ -117,6 +119,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 for chunk in video_response.iter_content(chunk_size=1024):
                     if chunk:
                         file.write(chunk)
+            video_file_extension = "mp4"
         else:
             raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file")
 
@@ -141,6 +144,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 for chunk in video_response.iter_content(chunk_size=1024):
                     if chunk:
                         file.write(chunk)
+            video_file_extension = "mp4"
         else:
             raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file for TikTok video")
 
