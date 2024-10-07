@@ -16,7 +16,7 @@ from pydub import AudioSegment, silence
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
     "version": "100.100.100",
-    "description": "## 영상 내용 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - Multilingual VIDEO STT \n - MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n - YOUTUBE, TIKTOK, INSTAGRAM",
+    "description": "## 영상 내용 음성 추출 및 텍스트 변환 엔진 \n - API Swagger \n - Multilingual VIDEO STT \n - MP4, MOV, AVI, MKV, WMV, FLV, OGG, WebM \n - YOUTUBE, TIKTOK",
     "contact": {
         "name": "Linkbricks Horizon AI",
         "url": "https://www.linkbricks.com",
@@ -33,7 +33,7 @@ app = FastAPI(**SWAGGER_HEADERS)
 # 인증키
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
 
-# 파일을 저장할 디렉토리 설정
+# Directory to save the files
 AUDIO_DIR = "audio"
 VIDEO_DIR = "video"
 if not os.path.exists(AUDIO_DIR):
@@ -45,8 +45,8 @@ if not os.path.exists(VIDEO_DIR):
 class YouTubeAudioRequest(BaseModel):
     api_key: str
     auth_key: str
-    video_url: str  # 영상 URL (유튜브, 틱톡, 인스타그램 포함)
-    interval_seconds: int  # 초 단위
+    video_url: str  # youtube_url에서 video_url로 수정
+    interval_seconds: int  # 초 단위로 변경
     downloader_api_key: str
     summary_flag: int
     chunking_method: str  # "interval" 또는 "silence"
@@ -58,10 +58,6 @@ def is_youtube_url(url: str) -> bool:
 # 틱톡 영상인지 확인하는 함수
 def is_tiktok_url(url: str) -> bool:
     return "tiktok.com" in url
-
-# 인스타그램 영상인지 확인하는 함수
-def is_instagram_url(url: str) -> bool:
-    return "instagram.com/reel/" in url or "instagram.com/p/" in url
 
 # 유튜브 URL을 표준 형식으로 변환하는 함수
 def normalize_youtube_url(video_url: str) -> str:
@@ -87,14 +83,7 @@ def normalize_youtube_url(video_url: str) -> str:
     # 예상치 못한 형식은 예외 처리
     raise ValueError("Invalid YouTube URL format")
 
-# 인스타그램 URL을 표준 형식으로 변환하는 함수
-def normalize_instagram_url(video_url: str) -> str:
-    if "/reel/" in video_url:
-        video_id = video_url.split("/reel/")[-1].split("/")[0]
-        return f"https://www.instagram.com/p/{video_id}/"
-    return video_url
-
-# 유튜브, 틱톡, 인스타그램 동영상을 다운로드하고 오디오를 추출 및 분할하는 함수
+# 유튜브 또는 틱톡 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str) -> List[str]:
     video_file_extension = None
 
@@ -163,33 +152,6 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         else:
             raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file for TikTok video")
 
-    elif is_instagram_url(video_url):
-        # 인스타그램 영상 처리
-        normalized_url = normalize_instagram_url(video_url)
-        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
-        headers = {
-            'Authorization': f'Bearer {downloader_api_key}'
-        }
-
-        response = requests.get(api_url, headers=headers)
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to retrieve Instagram video information from API")
-
-        data = response.json()
-        video_download_url = data.get("video")
-        caption = data.get("caption", "")
-
-        if not video_download_url:
-            raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file for Instagram video")
-
-        video_response = requests.get(video_download_url, stream=True)
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as file:
-            for chunk in video_response.iter_content(chunk_size=1024):
-                if chunk:
-                    file.write(chunk)
-        video_file_extension = "mp4"
-
     else:
         # 일반적인 웹의 동영상 파일 또는 mp3 처리
         video_response = requests.get(video_url, stream=True)
@@ -206,7 +168,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                     file.write(chunk)
 
     # 영상에서 오디오 추출 (영상 파일인 경우만)
-    if video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
+    if video_file_extension in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
         audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
         audio_clip = AudioFileClip(video_file)
         audio_clip.write_audiofile(audio_file)
@@ -235,12 +197,6 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
             chunk.export(chunk_file, format="mp3")
             chunk_files.append(chunk_file)
-
-    # **첫 번째 변경 사항 적용: chunk_files가 비어 있을 경우 전체 오디오를 하나의 청크로 처리**
-    if not chunk_files:
-        chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-        audio.export(chunk_file, format="mp3")
-        chunk_files.append(chunk_file)
 
     os.remove(audio_file)
     
@@ -310,7 +266,7 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
         for i, response in enumerate(responses):
             result = await response.json()
             transcribed_texts.append(result['text'])
-            os.remove(chunk_file)
+            os.remove(audio_chunks[i])
 
     return transcribed_texts, chunk_times
 
@@ -320,11 +276,9 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         raise HTTPException(status_code=403, detail="Invalid authentication key")
 
     try:
-        # 유튜브, 틱톡, 인스타그램 URL 표준화 처리
+        # 유튜브 또는 틱톡 URL 표준화 처리
         if is_youtube_url(request.video_url):
             normalized_video_url = normalize_youtube_url(request.video_url)
-        elif is_instagram_url(request.video_url):
-            normalized_video_url = normalize_instagram_url(request.video_url)
         else:
             normalized_video_url = request.video_url
         
