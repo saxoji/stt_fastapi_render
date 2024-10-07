@@ -93,7 +93,7 @@ def normalize_instagram_url(video_url: str) -> str:
     return video_url
 
 # 유튜브, 틱톡, 인스타그램 영상 다운로드 및 오디오 추출 함수
-async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str) -> List[str]:
+async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str):
     video_file_extension = None
     caption = None  # caption 초기화
 
@@ -110,7 +110,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
 
         # 특정 지역에서 제한된 영상 처리
         if data.get('status') == 'fail' and 'description' in data:
-            return [data['description'] + "\n[해당 동영상은 저작권자의 요청으로 저작권자가 입력한 내용만 출력합니다]"]
+            return [data['description'] + "\n[해당 동영상은 저작권자의 요청으로 저작권자가 입력한 내용만 출력합니다]"], None
 
         smallest_mp4_url = next((fmt.get('url') for fmt in data.get('formats', []) if fmt.get('mimeType', '').startswith('video/mp4')), None)
 
@@ -259,7 +259,7 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
         for i, response in enumerate(responses):
             result = await response.json()
             transcribed_texts.append(result.get('text', ""))
-            os.remove(chunk_file)  # Remove the processed audio chunk
+            os.remove(audio_chunks[i])  # Remove the processed audio chunk
 
     return transcribed_texts, chunk_times
 
@@ -277,6 +277,10 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
             normalized_video_url = request.video_url
 
         audio_chunks, caption = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key, request.chunking_method)
+
+        # 특정 지역 제한된 영상의 경우 description으로 바로 반환
+        if len(audio_chunks) == 1 and isinstance(audio_chunks[0], str):
+            return {"summary": audio_chunks[0]}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
