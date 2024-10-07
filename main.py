@@ -95,6 +95,7 @@ def normalize_instagram_url(video_url: str) -> str:
 # 유튜브, 틱톡, 인스타그램 영상 다운로드 및 오디오 추출 함수
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str) -> List[str]:
     video_file_extension = None
+    caption = None  # caption 초기화
 
     if is_youtube_url(video_url):
         # 유튜브 영상 처리
@@ -106,6 +107,11 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="Failed to retrieve video information from API")
         data = json.loads(response.text)
+
+        # 특정 지역에서 제한된 영상 처리
+        if data.get('status') == 'fail' and 'description' in data:
+            return [data['description'] + "\n[해당 동영상은 저작권자의 요청으로 저작권자가 입력한 내용만 출력합니다]"]
+
         smallest_mp4_url = next((fmt.get('url') for fmt in data.get('formats', []) if fmt.get('mimeType', '').startswith('video/mp4')), None)
 
         if smallest_mp4_url:
