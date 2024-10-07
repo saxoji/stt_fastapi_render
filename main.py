@@ -33,7 +33,7 @@ app = FastAPI(**SWAGGER_HEADERS)
 # 인증키
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
 
-# Directory to save the files
+# 파일을 저장할 디렉토리 설정
 AUDIO_DIR = "audio"
 VIDEO_DIR = "video"
 if not os.path.exists(AUDIO_DIR):
@@ -45,8 +45,8 @@ if not os.path.exists(VIDEO_DIR):
 class YouTubeAudioRequest(BaseModel):
     api_key: str
     auth_key: str
-    video_url: str  # youtube_url에서 video_url로 수정
-    interval_seconds: int  # 초 단위로 변경
+    video_url: str  # 영상 URL (유튜브, 틱톡, 인스타그램 포함)
+    interval_seconds: int  # 초 단위
     downloader_api_key: str
     summary_flag: int
     chunking_method: str  # "interval" 또는 "silence"
@@ -59,7 +59,7 @@ def is_youtube_url(url: str) -> bool:
 def is_tiktok_url(url: str) -> bool:
     return "tiktok.com" in url
 
-# **인스타그램 영상인지 확인하는 함수 추가**
+# 인스타그램 영상인지 확인하는 함수
 def is_instagram_url(url: str) -> bool:
     return "instagram.com/reel/" in url or "instagram.com/p/" in url
 
@@ -87,14 +87,14 @@ def normalize_youtube_url(video_url: str) -> str:
     # 예상치 못한 형식은 예외 처리
     raise ValueError("Invalid YouTube URL format")
 
-# **인스타그램 URL을 표준 형식으로 변환하는 함수 추가**
+# 인스타그램 URL을 표준 형식으로 변환하는 함수
 def normalize_instagram_url(video_url: str) -> str:
     if "/reel/" in video_url:
         video_id = video_url.split("/reel/")[-1].split("/")[0]
         return f"https://www.instagram.com/p/{video_id}/"
     return video_url
 
-# 유튜브 또는 틱톡 API를 이용해 가장 작은 해상도 MP4 파일을 다운로드하고 지정된 간격으로 오디오를 추출해 나누기
+# 유튜브, 틱톡, 인스타그램 동영상을 다운로드하고 오디오를 추출 및 분할하는 함수
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str) -> List[str]:
     video_file_extension = None
 
@@ -163,7 +163,6 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         else:
             raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file for TikTok video")
 
-    # **인스타그램 영상 처리 추가**
     elif is_instagram_url(video_url):
         # 인스타그램 영상 처리
         normalized_url = normalize_instagram_url(video_url)
@@ -207,7 +206,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                     file.write(chunk)
 
     # 영상에서 오디오 추출 (영상 파일인 경우만)
-    if video_file_extension in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
+    if video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
         audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
         audio_clip = AudioFileClip(video_file)
         audio_clip.write_audiofile(audio_file)
@@ -236,6 +235,12 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
             chunk.export(chunk_file, format="mp3")
             chunk_files.append(chunk_file)
+
+    # **첫 번째 변경 사항 적용: chunk_files가 비어 있을 경우 전체 오디오를 하나의 청크로 처리**
+    if not chunk_files:
+        chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+        audio.export(chunk_file, format="mp3")
+        chunk_files.append(chunk_file)
 
     os.remove(audio_file)
     
@@ -305,7 +310,7 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
         for i, response in enumerate(responses):
             result = await response.json()
             transcribed_texts.append(result['text'])
-            os.remove(audio_chunks[i])
+            os.remove(chunk_file)
 
     return transcribed_texts, chunk_times
 
