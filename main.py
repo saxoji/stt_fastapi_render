@@ -10,6 +10,7 @@ import datetime
 import asyncio
 import aiohttp
 from pydub import AudioSegment, silence
+import math  # 추가된 모듈
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -65,8 +66,19 @@ def normalize_youtube_url(video_url: str) -> str:
     if "youtu.be" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
-    # 기타 형식 처리
-    # ... 나머지 코드 동일 ...
+    # youtube.com/embed 형식
+    if "youtube.com/embed" in video_url:
+        video_id = video_url.split('/')[-1].split('?')[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    # youtube.com/shorts 형식
+    if "youtube.com/shorts" in video_url:
+        video_id = video_url.split('/')[-1].split('?')[0]
+        return f"https://www.youtube.com/watch?v={video_id}"
+    # youtube.com/watch 형식
+    if "youtube.com/watch" in video_url:
+        return video_url.split('&')[0]  # 추가 쿼리 매개변수 제거
+    # 예상치 못한 형식은 예외 처리
+    raise ValueError("Invalid YouTube URL format")
 
 # 인스타그램 URL 표준화 함수
 def normalize_instagram_url(video_url: str) -> str:
@@ -77,23 +89,97 @@ def normalize_instagram_url(video_url: str) -> str:
 
 # 영상 다운로드 및 오디오 추출 함수
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str):
-    # ... 기존 코드 ...
+    video_file_extension = None
+    caption = None  # caption 초기화
 
     if is_youtube_url(video_url):
-        # 유튜브 처리
-        # ... 기존 코드 ...
+        # 유튜브 영상 처리
+        api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+        response = requests.get(f"{api_url}?id={video_url.split('v=')[-1]}", headers=api_headers)
+        if response.status_code != 200:
+            raise Exception("Failed to retrieve video information from API")
+        data = json.loads(response.text)
+
+        # 특정 지역에서 제한된 영상 처리
         if data.get('status') == 'fail' and 'description' in data:
             raise Exception(data['description'] + "\n[해당 동영상은 저작권자의 요청으로 내용만 출력합니다]")
-        # ... 나머지 코드 동일 ...
+
+        smallest_mp4_url = next((fmt.get('url') for fmt in data.get('formats', []) if fmt.get('mimeType', '').startswith('video/mp4')), None)
+
+        if smallest_mp4_url:
+            video_response = requests.get(smallest_mp4_url, stream=True)
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+            video_file_extension = "mp4"
+        else:
+            raise Exception("Failed to find a suitable MP4 file")
 
     elif is_instagram_url(video_url):
-        # 인스타그램 처리
-        # ... 기존 코드 ...
+        # 인스타그램 영상 처리
+        normalized_url = normalize_instagram_url(video_url)
+        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
+        headers = {'Authorization': f'Bearer {downloader_api_key}'}
+        response = requests.get(api_url, headers=headers)
+        if response.status_code != 200:
+            raise Exception("Failed to retrieve Instagram video information from API")
+        data = response.json()
+        video_download_url = data.get("video")
+        caption = data.get("caption", "")
+
+        if not video_download_url:
+            raise Exception("Failed to find a suitable MP4 file for Instagram video")
+
+        video_response = requests.get(video_download_url, stream=True)
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
+                if chunk:
+                    file.write(chunk)
+        video_file_extension = "mp4"
 
     else:
         raise Exception("지원되지 않는 비디오 플랫폼입니다")
 
-    # ... 오디오 추출 및 청크 생성 코드 동일 ...
+    # 영상에서 오디오 추출 (영상 파일인 경우만)
+    if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
+        audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+        audio_clip = AudioFileClip(video_file)
+        audio_clip.write_audiofile(audio_file)
+        audio_clip.close()
+        os.remove(video_file)
+    else:
+        raise Exception("Unsupported video format for audio extraction")
+
+    # 오디오 파일을 PyDub로 불러오기
+    audio = AudioSegment.from_file(audio_file)
+    chunk_files = []
+
+    if chunking_method == "silence":
+        chunks = silence.split_on_silence(audio, min_silence_len=500, silence_thresh=audio.dBFS-14, keep_silence=250)
+        for i, chunk in enumerate(chunks):
+            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+            chunk.export(chunk_file, format="mp3")
+            chunk_files.append(chunk_file)
+    elif chunking_method == "interval":
+        duration = len(audio) / 1000  # PyDub에서 길이는 밀리초 단위
+        start_time = 0
+        while start_time < duration:
+            end_time = min(start_time + interval_seconds, duration)
+            chunk = audio[start_time * 1000 : end_time * 1000]
+            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+            chunk.export(chunk_file, format="mp3")
+            chunk_files.append(chunk_file)
+            start_time += interval_seconds
+    else:
+        raise Exception("Invalid chunking method")
+
+    os.remove(audio_file)
 
     if not chunk_files:
         raise Exception("오디오 청크가 생성되지 않았습니다")
@@ -106,17 +192,74 @@ def seconds_to_timecode(seconds: int) -> str:
 
 # 텍스트 요약 함수
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
-    # ... 기존 코드 ...
+    summarized_text = ""
+
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for i, chunk in enumerate(text_chunks):
+            task = asyncio.create_task(
+                session.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    json={
+                        "model": "gpt-4o",
+                        "messages": [
+                            {"role": "system", "content": "Summarize the following transcription text without any of your own comments."},
+                            {"role": "user", "content": chunk}
+                        ]
+                    },
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+            )
+            tasks.append(task)
+
+        responses = await asyncio.gather(*tasks)
+
+        for i, response in enumerate(responses):
+            result = await response.json()
+            summary = result['choices'][0]['message']['content']
+            summarized_text += f"{chunk_times[i]}: {summary}\n"
+
+    return summarized_text
 
 # 오디오 청크 전사 함수
 async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
-    # ... 기존 코드 ...
+    transcribed_texts = []
+    chunk_times = []
 
-    # 파일 삭제 시 정확한 파일 참조
-    for i, response in enumerate(responses):
-        result = await response.json()
-        transcribed_texts.append(result.get('text', ""))
-        os.remove(audio_chunks[i])  # 정확한 파일 참조
+    headers = {
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for i, chunk_file in enumerate(audio_chunks):
+            start_time_seconds = i * interval_seconds
+            chunk_times.append(seconds_to_timecode(start_time_seconds))
+
+            # Read the audio file content
+            with open(chunk_file, 'rb') as f:
+                audio_data = f.read()
+
+            form = aiohttp.FormData()
+            form.add_field('file', audio_data, filename=os.path.basename(chunk_file), content_type='audio/mpeg')
+            form.add_field('model', 'whisper-1')
+            form.add_field('response_format', 'json')
+
+            task = asyncio.create_task(
+                session.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers=headers,
+                    data=form
+                )
+            )
+            tasks.append(task)
+
+        responses = await asyncio.gather(*tasks)
+
+        for i, response in enumerate(responses):
+            result = await response.json()
+            transcribed_texts.append(result.get('text', ""))
+            os.remove(audio_chunks[i])  # 정확한 파일 참조
 
     return transcribed_texts, chunk_times
 
