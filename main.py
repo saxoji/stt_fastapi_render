@@ -190,6 +190,37 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
 def seconds_to_timecode(seconds: int) -> str:
     return str(datetime.timedelta(seconds=seconds))
 
+# 비동기로 텍스트 요약 처리
+async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
+    summarized_text = ""
+
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for i, chunk in enumerate(text_chunks):
+            task = asyncio.create_task(
+                session.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    json={
+                        "model": "gpt-4o",
+                        "messages": [
+                            {"role": "system", "content": "Summarize the following youtube video transcription text without any your comments."},
+                            {"role": "user", "content": chunk}
+                        ]
+                    },
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+            )
+            tasks.append(task)
+
+        responses = await asyncio.gather(*tasks)
+
+        for i, response in enumerate(responses):
+            result = await response.json()
+            summary = result['choices'][0]['message']['content']
+            summarized_text += f"{chunk_times[i]}: {summary}\n"
+
+    return summarized_text
+
 # 비동기로 오디오 파일을 처리하고 STT 수행
 async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
     transcribed_texts = []
@@ -241,6 +272,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
     try:
         transcribed_texts, chunk_times = await transcribe_audio_chunks(request.api_key, audio_chunks, request.interval_seconds)
     except Exception as e:
+        if is_instagram_url(request.video_url) and caption:
+            return {"summary": f"[caption]: {caption}"}
         raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
 
     if request.summary_flag == 1:
