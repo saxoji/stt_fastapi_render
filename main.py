@@ -10,7 +10,7 @@ import datetime
 import asyncio
 import aiohttp
 from pydub import AudioSegment, silence
-import math  # 추가된 모듈
+import math
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -306,6 +306,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         full_transcription = "\n".join(
             [f"{chunk_times[i]}: {transcribed_texts[i]}" for i in range(len(transcribed_texts))]
         )
+        if caption:
+            full_transcription = f"[caption]: {caption}\n" + full_transcription
         return {"transcription": full_transcription}
 
 if __name__ == "__main__":
