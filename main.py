@@ -203,7 +203,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
                     json={
                         "model": "gpt-4o",
                         "messages": [
-                            {"role": "system", "content": "Summarize the following youtube video transcription text without any your comments."},
+                            {"role": "system", "content": "Summarize the following transcription text without any of your own comments."},
                             {"role": "user", "content": chunk}
                         ]
                     },
@@ -226,18 +226,30 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
     transcribed_texts = []
     chunk_times = []
 
+    headers = {
+        "Authorization": f"Bearer {api_key}"
+    }
+
     async with aiohttp.ClientSession() as session:
         tasks = []
         for i, chunk_file in enumerate(audio_chunks):
             start_time_seconds = i * interval_seconds
             chunk_times.append(seconds_to_timecode(start_time_seconds))
 
+            # Read the audio file content
+            with open(chunk_file, 'rb') as f:
+                audio_data = f.read()
+
+            form = aiohttp.FormData()
+            form.add_field('file', audio_data, filename=os.path.basename(chunk_file), content_type='audio/mpeg')
+            form.add_field('model', 'whisper-1')
+            form.add_field('response_format', 'json')
+
             task = asyncio.create_task(
                 session.post(
                     "https://api.openai.com/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    data={"model": "whisper-1"},
-                    files={"file": open(chunk_file, "rb")}
+                    headers=headers,
+                    data=form
                 )
             )
             tasks.append(task)
@@ -247,7 +259,7 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
         for i, response in enumerate(responses):
             result = await response.json()
             transcribed_texts.append(result.get('text', ""))
-            os.remove(audio_chunks[i])
+            os.remove(chunk_file)  # Remove the processed audio chunk
 
     return transcribed_texts, chunk_times
 
