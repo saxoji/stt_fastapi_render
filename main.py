@@ -129,6 +129,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             raise HTTPException(status_code=500, detail="Failed to retrieve Instagram video information from API")
         data = response.json()
         video_download_url = data.get("video")
+        caption = data.get("caption", "")
 
         if not video_download_url:
             raise HTTPException(status_code=500, detail="Failed to find a suitable MP4 file for Instagram video")
@@ -177,7 +178,11 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
     if not chunk_files:
         raise HTTPException(status_code=500, detail="No audio chunks were created")
     
-    return chunk_files
+    return chunk_files, caption
+
+# hh:mm:ss 포맷으로 변환
+def seconds_to_timecode(seconds: int) -> str:
+    return str(datetime.timedelta(seconds=seconds))
 
 # 비동기로 오디오 파일을 처리하고 STT 수행
 async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
@@ -222,7 +227,7 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
         else:
             normalized_video_url = request.video_url
 
-        audio_chunks = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key, request.chunking_method)
+        audio_chunks, caption = await download_video_and_split_audio(normalized_video_url, request.interval_seconds, request.downloader_api_key, request.chunking_method)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error downloading or splitting audio: {str(e)}")
@@ -234,6 +239,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
 
     if request.summary_flag == 1:
         summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
+        if caption:
+            summary_text = f"[caption]: {caption}\n" + summary_text
         return {"summary": summary_text}
     else:
         full_transcription = "\n".join([f"{chunk_times[i]}: {transcribed_texts[i]}" for i in range(len(transcribed_texts))])
