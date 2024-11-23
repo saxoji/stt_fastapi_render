@@ -48,7 +48,7 @@ class YouTubeAudioRequest(BaseModel):
     interval_seconds: int
     downloader_api_key: str
     summary_flag: int
-    chunking_method: str  # "interval" 또는 "silence"
+    chunking_method: str
 
 # URL 확인 함수들
 def is_youtube_url(url: str) -> bool:
@@ -62,17 +62,22 @@ def is_instagram_url(url: str) -> bool:
 
 # 유튜브 URL 표준화 함수
 def normalize_youtube_url(video_url: str) -> str:
+    # youtu.be 형식 처리
     if "youtu.be" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
+    # youtube.com/embed 형식
     if "youtube.com/embed" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
+    # youtube.com/shorts 형식
     if "youtube.com/shorts" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
+    # youtube.com/watch 형식
     if "youtube.com/watch" in video_url:
-        return video_url.split('&')[0]
+        return video_url.split('&')[0]  # 추가 쿼리 매개변수 제거
+    # 예상치 못한 형식은 예외 처리
     raise ValueError("Invalid YouTube URL format")
 
 # 인스타그램 URL 표준화 함수
@@ -86,146 +91,181 @@ def normalize_instagram_url(video_url: str) -> str:
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str):
     video_file_extension = None
     caption = None
-
-    if is_youtube_url(video_url):
-        video_id = video_url.split('v=')[-1] if 'v=' in video_url else video_url.split('/')[-1]
-        api_url = f"https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/6812/youtube+downloader?videoId={video_id}"
-        api_headers = {
-            'Authorization': f'Bearer {downloader_api_key}'
-        }
-
-        try:
-            response = requests.get(api_url, headers=api_headers)
-            response.raise_for_status()
-            data = response.json()
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Failed to retrieve video information from API: {e}")
-
-        video_items = data.get('videos', {}).get('items', [])
-        if not video_items:
-            raise Exception("No video items found in API response")
-
-        lowest_resolution = float('inf')
-        video_url_to_download = None
-
-        for item in video_items:
-            if item.get('mimeType', '').startswith('video/mp4'):
-                width = item.get('width', 0)
-                height = item.get('height', 0)
-                resolution = width * height
-                if resolution < lowest_resolution:
-                    lowest_resolution = resolution
-                    video_url_to_download = item.get('url')
-
-        if not video_url_to_download:
-            # 최저 화질을 찾을 수 없을 경우 첫 번째 항목 다운로드
-            video_url_to_download = video_items[0].get('url')
-
-        try:
-            video_response = requests.get(video_url_to_download, stream=True)
-            video_response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Failed to download the video: {e}")
-
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as file:
-            for chunk in video_response.iter_content(chunk_size=1024):
-                if chunk:
-                    file.write(chunk)
-        video_file_extension = "mp4"
-
-    elif is_tiktok_url(video_url):
-        api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
-        api_headers = {
-            'Authorization': f'Bearer {downloader_api_key}'
-        }
-        response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
-        if response.status_code != 200:
-            raise Exception("Failed to retrieve TikTok video information from API")
-
-        data = response.json()
-        download_url = data.get('download_url')
-        if not download_url:
-            raise Exception("Failed to find a download URL for TikTok video")
-
-        video_response = requests.get(download_url, stream=True)
-        if video_response.status_code != 200:
-            raise Exception("Failed to download TikTok video")
-
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as file:
-            for chunk in video_response.iter_content(chunk_size=1024):
-                if chunk:
-                    file.write(chunk)
-        video_file_extension = "mp4"
-        
-    elif is_instagram_url(video_url):
-        normalized_url = normalize_instagram_url(video_url)
-        api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
-        headers = {'Authorization': f'Bearer {downloader_api_key}'}
-        response = requests.get(api_url, headers=headers)
-        if response.status_code != 200:
-            raise Exception("Failed to retrieve Instagram video information from API")
-        data = response.json()
-        video_download_url = data.get("video")
-        caption = data.get("caption", "")
-
-        if not video_download_url:
-            raise Exception("Failed to find a suitable MP4 file for Instagram video")
-
-        video_response = requests.get(video_download_url, stream=True)
-        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-        with open(video_file, 'wb') as file:
-            for chunk in video_response.iter_content(chunk_size=1024):
-                if chunk:
-                    file.write(chunk)
-        video_file_extension = "mp4"
-
-    else:
-        raise Exception("지원되지 않는 비디오 플랫폼입니다")
-
-    # 영상에서 오디오 추출
-    if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
-        audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-        audio_clip = AudioFileClip(video_file)
-        audio_clip.write_audiofile(audio_file)
-        audio_clip.close()
-        os.remove(video_file)
-    else:
-        raise Exception("Unsupported video format for audio extraction")
-
-    # 오디오 파일을 PyDub로 불러오기
-    audio = AudioSegment.from_file(audio_file)
+    video_file = None
+    audio_file = None
     chunk_files = []
 
-    if chunking_method == "silence":
-        chunks = silence.split_on_silence(audio, min_silence_len=500, silence_thresh=audio.dBFS-14, keep_silence=250)
-        for i, chunk in enumerate(chunks):
-            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-            chunk.export(chunk_file, format="mp3")
-            chunk_files.append(chunk_file)
-    elif chunking_method == "interval":
-        duration = len(audio) / 1000
-        start_time = 0
-        while start_time < duration:
-            end_time = min(start_time + interval_seconds, duration)
-            chunk = audio[start_time * 1000 : end_time * 1000]
-            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-            chunk.export(chunk_file, format="mp3")
-            chunk_files.append(chunk_file)
-            start_time += interval_seconds
-    else:
-        raise Exception("Invalid chunking method")
+    try:
+        if is_youtube_url(video_url):
+            # 유튜브 동영상 처리
+            video_id = video_url.split('v=')[-1] if 'v=' in video_url else video_url.split('/')[-1]
+            api_url = f"https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/6812/youtube+downloader?videoId={video_id}"
+            api_headers = {'Authorization': f'Bearer {downloader_api_key}'}
 
-    os.remove(audio_file)
+            response = requests.get(api_url, headers=api_headers)
+            if response.status_code != 200:
+                raise Exception("API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
-    if not chunk_files:
-        raise Exception("오디오 청크가 생성되지 않았습니다")
+            data = response.json()
 
-    return chunk_files, caption
+            # 'videos' -> 'items' 리스트에서 'url' 추출
+            video_items = data.get('videos', {}).get('items', [])
+            if not video_items:
+                raise Exception("동영상 정보를 찾을 수 없습니다.")
 
-# 나머지 함수와 API 엔드포인트 정의 (기존 코드와 동일)
+            # 가장 낮은 해상도의 MP4 URL 찾기
+            download_url = None
+            lowest_resolution = float('inf')
 
+            for item in video_items:
+                if item.get('mimeType', '').startswith('video/mp4'):
+                    resolution = item.get('width', 0) * item.get('height', 0)
+                    if resolution > 0 and resolution < lowest_resolution:
+                        lowest_resolution = resolution
+                        download_url = item.get('url')
+
+            # 적절한 URL을 찾지 못한 경우 첫 번째 사용 가능한 URL 사용
+            if not download_url and video_items:
+                download_url = video_items[0].get('url')
+
+            if not download_url:
+                raise Exception("No suitable video URL found")
+
+            video_response = requests.get(download_url, stream=True)
+            video_response.raise_for_status()
+            
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        file.write(chunk)
+            video_file_extension = "mp4"
+
+        elif is_tiktok_url(video_url):
+            # 틱톡 영상 처리
+            api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
+            api_headers = {'Authorization': f'Bearer {downloader_api_key}'}
+            
+            response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
+            if response.status_code != 200:
+                raise Exception("Failed to retrieve TikTok video information from API")
+
+            data = response.json()
+            download_url = data.get('download_url')
+            if not download_url:
+                raise Exception("Failed to find a download URL for TikTok video")
+
+            video_response = requests.get(download_url, stream=True)
+            if video_response.status_code != 200:
+                raise Exception("Failed to download TikTok video")
+
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        file.write(chunk)
+            video_file_extension = "mp4"
+
+        elif is_instagram_url(video_url):
+            # 인스타그램 영상 처리
+            normalized_url = normalize_instagram_url(video_url)
+            api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
+            headers = {'Authorization': f'Bearer {downloader_api_key}'}
+            
+            response = requests.get(api_url, headers=headers)
+            if response.status_code != 200:
+                raise Exception("Failed to retrieve Instagram video information from API")
+
+            data = response.json()
+            video_download_url = data.get("video")
+            caption = data.get("caption", "")
+
+            if not video_download_url:
+                raise Exception("Failed to find a suitable video file for Instagram video")
+
+            video_response = requests.get(video_download_url, stream=True)
+            if video_response.status_code != 200:
+                raise Exception("Failed to download Instagram video")
+
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        file.write(chunk)
+            video_file_extension = "mp4"
+
+        else:
+            raise Exception("지원되지 않는 비디오 플랫폼입니다")
+
+        # 영상에서 오디오 추출
+        if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
+            try:
+                audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                audio_clip = AudioFileClip(video_file)
+                audio_clip.write_audiofile(audio_file)
+                audio_clip.close()
+            except Exception as e:
+                raise Exception(f"Failed to extract audio: {str(e)}")
+            finally:
+                if video_file and os.path.exists(video_file):
+                    os.remove(video_file)
+        else:
+            raise Exception("Unsupported video format for audio extraction")
+
+        # 오디오 파일 처리
+        audio = AudioSegment.from_file(audio_file)
+
+        if chunking_method == "silence":
+            chunks = silence.split_on_silence(
+                audio,
+                min_silence_len=500,
+                silence_thresh=audio.dBFS-14,
+                keep_silence=250
+            )
+            for chunk in chunks:
+                chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                chunk.export(chunk_file, format="mp3")
+                chunk_files.append(chunk_file)
+
+        elif chunking_method == "interval":
+            duration = len(audio) / 1000  # PyDub에서 길이는 밀리초 단위
+            start_time = 0
+            while start_time < duration:
+                end_time = min(start_time + interval_seconds, duration)
+                chunk = audio[start_time * 1000 : end_time * 1000]
+                chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                chunk.export(chunk_file, format="mp3")
+                chunk_files.append(chunk_file)
+                start_time += interval_seconds
+        else:
+            raise Exception("Invalid chunking method")
+
+        if not chunk_files:
+            raise Exception("오디오 청크가 생성되지 않았습니다")
+
+        return chunk_files, caption
+
+    except Exception as e:
+        # 에러 발생 시 모든 임시 파일 정리
+        if video_file and os.path.exists(video_file):
+            os.remove(video_file)
+        if audio_file and os.path.exists(audio_file):
+            os.remove(audio_file)
+        for chunk_file in chunk_files:
+            if os.path.exists(chunk_file):
+                os.remove(chunk_file)
+        raise Exception(str(e))
+
+    finally:
+        # 메인 오디오 파일 정리
+        if audio_file and os.path.exists(audio_file):
+            os.remove(audio_file)
+
+# 시간 형식 변환 함수
+def seconds_to_timecode(seconds: int) -> str:
+    return str(datetime.timedelta(seconds=seconds))
+
+# 텍스트 요약 함수
 async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List[str]) -> str:
     summarized_text = ""
 
@@ -256,6 +296,7 @@ async def summarize_text(api_key: str, text_chunks: List[str], chunk_times: List
 
     return summarized_text
 
+# 오디오 청크 전사 함수
 async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
     transcribed_texts = []
     chunk_times = []
@@ -270,6 +311,7 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
             start_time_seconds = i * interval_seconds
             chunk_times.append(seconds_to_timecode(start_time_seconds))
 
+            # Read the audio file content
             with open(chunk_file, 'rb') as f:
                 audio_data = f.read()
 
@@ -292,16 +334,18 @@ async def transcribe_audio_chunks(api_key: str, audio_chunks, interval_seconds):
         for i, response in enumerate(responses):
             result = await response.json()
             transcribed_texts.append(result.get('text', ""))
-            os.remove(audio_chunks[i])
+            os.remove(audio_chunks[i])  # 사용한 오디오 파일 삭제
 
     return transcribed_texts, chunk_times
 
+# API 엔드포인트
 @app.post("/process_youtube_audio/")
 async def process_youtube_audio(request: YouTubeAudioRequest):
     if request.auth_key != REQUIRED_AUTH_KEY:
         raise HTTPException(status_code=403, detail="Invalid authentication key")
 
     try:
+        # URL 표준화
         if is_youtube_url(request.video_url):
             normalized_video_url = normalize_youtube_url(request.video_url)
         elif is_instagram_url(request.video_url):
@@ -310,10 +354,14 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
             normalized_video_url = request.video_url
 
         audio_chunks, caption = await download_video_and_split_audio(
-            normalized_video_url, request.interval_seconds, request.downloader_api_key, request.chunking_method
+            normalized_video_url, 
+            request.interval_seconds, 
+            request.downloader_api_key, 
+            request.chunking_method
         )
 
     except Exception as e:
+        # 인스타그램의 경우 캡션이 있으면 반환
         if is_instagram_url(request.video_url) and caption:
             return {"summary": f"[caption]: {caption}"}
         raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
@@ -327,18 +375,21 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
             return {"summary": f"[caption]: {caption}"}
         raise HTTPException(status_code=500, detail=f"Error transcribing audio: {str(e)}")
 
-    if request.summary_flag == 1:
-        summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
-        if caption:
-            summary_text = f"[caption]: {caption}\n" + summary_text
-        return {"summary": summary_text}
-    else:
-        full_transcription = "\n".join(
-            [f"{chunk_times[i]}: {transcribed_texts[i]}" for i in range(len(transcribed_texts))]
-        )
-        if caption:
-            full_transcription = f"[caption]: {caption}\n" + full_transcription
-        return {"transcription": full_transcription}
+    try:
+        if request.summary_flag == 1:
+            summary_text = await summarize_text(request.api_key, transcribed_texts, chunk_times)
+            if caption:
+                summary_text = f"[caption]: {caption}\n" + summary_text
+            return {"summary": summary_text}
+        else:
+            full_transcription = "\n".join(
+                [f"{chunk_times[i]}: {transcribed_texts[i]}" for i in range(len(transcribed_texts))]
+            )
+            if caption:
+                full_transcription = f"[caption]: {caption}\n" + full_transcription
+            return {"transcription": full_transcription}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in processing results: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
