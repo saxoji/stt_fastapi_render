@@ -222,10 +222,10 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 audio.write_audiofile(audio_file)
                 
                 # 즉시 리소스 정리
-                audio.close()
-                video.close()
-                del audio
-                del video
+                #audio.close()
+                #video.close()
+                #del audio
+                #del video
                 gc.collect()
                 
                 print("Audio extraction completed")
