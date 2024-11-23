@@ -11,6 +11,7 @@ import asyncio
 import aiohttp
 from pydub import AudioSegment, silence
 import math
+import subprocess
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -210,22 +211,26 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
                 print(f"Processing video file: {video_file}")
                 print(f"Creating audio file: {audio_file}")
-                
-                # AudioFileClip 생성 및 메모리 관리
+
+                # ffmpeg를 직접 사용하여 오디오 추출
                 try:
-                    audio_clip = AudioFileClip(video_file)
-                    audio_clip.write_audiofile(audio_file, fps=44100, nbytes=2, buffersize=2000, codec='libmp3lame')
+                    command = [
+                        'ffmpeg', '-i', video_file,
+                        '-vn',  # 비디오 스트림 제거
+                        '-acodec', 'libmp3lame',  # MP3 코덱 사용
+                        '-ar', '44100',  # 샘플레이트
+                        '-ac', '2',  # 스테레오
+                        '-b:a', '192k',  # 비트레이트
+                        audio_file
+                    ]
+                    process = subprocess.run(command, check=True, capture_output=True)
+                    if process.returncode != 0:
+                        raise Exception(f"FFmpeg error: {process.stderr.decode()}")
+                except subprocess.CalledProcessError as e:
+                    raise Exception(f"FFmpeg command failed: {e.stderr.decode()}")
                 except Exception as e:
-                    print(f"Error in audio extraction: {str(e)}")
-                    raise
-                finally:
-                    if audio_clip is not None:
-                        try:
-                            audio_clip.close()
-                        except:
-                            pass
-                        audio_clip = None
-                
+                    raise Exception(f"Error during FFmpeg conversion: {str(e)}")
+
                 # 오디오 파일이 제대로 생성되었는지 확인
                 if not os.path.exists(audio_file) or os.path.getsize(audio_file) == 0:
                     raise Exception("Audio extraction failed: Output file is empty or not created")
@@ -264,7 +269,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                         end = min(start + interval_ms, duration)
                         chunk = audio[start:end]
                         
-                        if len(chunk) > 0:  # 빈 청크 방지
+                        if len(chunk) > 0:
                             chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
                             chunk.export(chunk_file, format="mp3", parameters=["-ac", "1"])
                             chunk_files.append(chunk_file)
@@ -280,25 +285,39 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 print(f"Error during audio processing: {str(e)}")
                 raise Exception(f"Failed to extract audio: {str(e)}")
 
+            finally:
+                # 임시 파일 정리
+                if video_file and os.path.exists(video_file):
+                    try:
+                        os.remove(video_file)
+                    except:
+                        pass
+                if audio_file and os.path.exists(audio_file):
+                    try:
+                        os.remove(audio_file)
+                    except:
+                        pass
+
     except Exception as e:
         print(f"Error in main process: {str(e)}")
         # 에러 발생 시 모든 임시 파일 정리
         if video_file and os.path.exists(video_file):
-            os.remove(video_file)
+            try:
+                os.remove(video_file)
+            except:
+                pass
         if audio_file and os.path.exists(audio_file):
-            os.remove(audio_file)
+            try:
+                os.remove(audio_file)
+            except:
+                pass
         for chunk_file in chunk_files:
             if os.path.exists(chunk_file):
-                os.remove(chunk_file)
+                try:
+                    os.remove(chunk_file)
+                except:
+                    pass
         raise Exception(str(e))
-
-    finally:
-        # 메인 오디오 파일 정리
-        try:
-            if audio_file and os.path.exists(audio_file):
-                os.remove(audio_file)
-        except Exception as e:
-            print(f"Error during cleanup: {str(e)}")
 
     return chunk_files, caption
 
