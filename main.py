@@ -2,7 +2,7 @@ import os
 import uuid
 import requests
 import json
-from moviepy.editor import AudioFileClip
+from moviepy.editor import AudioFileClip, VideoFileClip
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -95,7 +95,6 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
     video_file = None
     audio_file = None
     chunk_files = []
-    audio_clip = None
 
     try:
         if is_youtube_url(video_url):
@@ -205,38 +204,41 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         else:
             raise Exception("지원되지 않는 비디오 플랫폼입니다")
 
-        # 영상에서 오디오 추출 (수정된 부분)
+        # 영상에서 오디오 추출
         if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
             try:
                 audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
                 print(f"Processing video file: {video_file}")
                 print(f"Creating audio file: {audio_file}")
                 
-                # AudioFileClip 생성 및 오디오 추출
+                # AudioFileClip 생성 전 가비지 컬렉션
                 import gc
-                gc.collect()  # 가비지 컬렉션 실행
-                
-                audio_clip = AudioFileClip(video_file)
-                print("AudioFileClip created successfully")
-                
-                # 오디오 파일 저장
-                audio_clip.write_audiofile(audio_file, codec='mp3')
-                print("Audio file written successfully")
-                
-                # AudioFileClip 정리
-                audio_clip.close()
-                del audio_clip
                 gc.collect()
+                
+                print("Starting audio extraction...")
+                # 새로운 방식으로 AudioFileClip 생성 및 저장
+                video = VideoFileClip(video_file)
+                audio = video.audio
+                audio.write_audiofile(audio_file)
+                
+                # 즉시 리소스 정리
+                audio.close()
+                video.close()
+                del audio
+                del video
+                gc.collect()
+                
+                print("Audio extraction completed")
                 
                 # 비디오 파일 정리
                 if os.path.exists(video_file):
                     os.remove(video_file)
                     video_file = None
-
+                
                 # 오디오 파일 확인
                 if not os.path.exists(audio_file) or os.path.getsize(audio_file) == 0:
                     raise Exception("Audio extraction failed: Output file is empty or not created")
-
+                
                 print("Starting audio processing with PyDub")
                 # PyDub으로 오디오 처리
                 audio = AudioSegment.from_mp3(audio_file)
