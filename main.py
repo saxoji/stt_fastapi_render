@@ -94,6 +94,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
     video_file = None
     audio_file = None
     chunk_files = []
+    audio_clip = None
 
     try:
         if is_youtube_url(video_url):
@@ -305,6 +306,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         # 메인 오디오 파일 정리
         if audio_file and os.path.exists(audio_file):
             os.remove(audio_file)
+
 
 # 시간 형식 변환 함수
 def seconds_to_timecode(seconds: int) -> str:
