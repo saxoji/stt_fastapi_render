@@ -12,6 +12,7 @@ import aiohttp
 from pydub import AudioSegment, silence
 import math
 
+# Swagger 헤더 설정
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
     "version": "100.100.100",
@@ -29,26 +30,24 @@ SWAGGER_HEADERS = {
 
 app = FastAPI(**SWAGGER_HEADERS)
 
-# 인증키
+# 인증 키
 REQUIRED_AUTH_KEY = "linkbricks-saxoji-benedict-ji-01034726435!@#$%231%$#@%"
 
 # 파일 저장 디렉토리 설정
 AUDIO_DIR = "audio"
 VIDEO_DIR = "video"
-if not os.path.exists(AUDIO_DIR):
-    os.makedirs(AUDIO_DIR)
-if not os.path.exists(VIDEO_DIR):
-    os.makedirs(VIDEO_DIR)
+os.makedirs(AUDIO_DIR, exist_ok=True)
+os.makedirs(VIDEO_DIR, exist_ok=True)
 
 # 모델 정의
 class YouTubeAudioRequest(BaseModel):
     api_key: str
     auth_key: str
-    video_url: str  # video_url로 수정
-    interval_seconds: int  # 초 단위
+    video_url: str
+    interval_seconds: int
     downloader_api_key: str
     summary_flag: int
-    chunking_method: str  # "interval" 또는 "silence"
+    chunking_method: str
 
 # URL 확인 함수들
 def is_youtube_url(url: str) -> bool:
@@ -62,22 +61,17 @@ def is_instagram_url(url: str) -> bool:
 
 # 유튜브 URL 표준화 함수
 def normalize_youtube_url(video_url: str) -> str:
-    # youtu.be 형식 처리
     if "youtu.be" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
-    # youtube.com/embed 형식
     if "youtube.com/embed" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
-    # youtube.com/shorts 형식
     if "youtube.com/shorts" in video_url:
         video_id = video_url.split('/')[-1].split('?')[0]
         return f"https://www.youtube.com/watch?v={video_id}"
-    # youtube.com/watch 형식
     if "youtube.com/watch" in video_url:
-        return video_url.split('&')[0]  # 추가 쿼리 매개변수 제거
-    # 예상치 못한 형식은 예외 처리
+        return video_url.split('&')[0]
     raise ValueError("Invalid YouTube URL format")
 
 # 인스타그램 URL 표준화 함수
