@@ -100,16 +100,20 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             'Authorization': f'Bearer {downloader_api_key}'
         }
     
-        response = requests.get(api_url, headers=api_headers)
-        if response.status_code != 200:
-            raise Exception("Failed to retrieve video information from API")
+        try:
+            response = requests.get(api_url, headers=api_headers)
+            response.raise_for_status()  # HTTP 에러 발생 시 예외 처리
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Failed to retrieve video information from API: {e}")
     
-        data = response.json()
+        # API 응답 구조 확인 및 유효성 검사
+        if not data or 'videos' not in data or 'items' not in data['videos']:
+            raise Exception(f"Unexpected API response structure: {json.dumps(data, indent=4)}")
     
-        # 'videos' -> 'items' 리스트에서 'url' 추출
-        video_items = data.get('videos', {}).get('items', [])
+        video_items = data['videos']['items']
         if not video_items:
-            raise Exception("Failed to find video information")
+            raise Exception("No video items found in API response")
     
         # 가능한 최저 화질의 동영상 URL 선택
         lowest_resolution = float('inf')
@@ -125,9 +129,11 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                     lowest_mp4_url = item.get('url')
     
         if lowest_mp4_url:
-            video_response = requests.get(lowest_mp4_url, stream=True)
-            if video_response.status_code != 200:
-                raise Exception("Failed to download the video")
+            try:
+                video_response = requests.get(lowest_mp4_url, stream=True)
+                video_response.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise Exception(f"Failed to download the video: {e}")
     
             video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
@@ -136,7 +142,8 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                         file.write(chunk)
             video_file_extension = "mp4"
         else:
-            raise Exception("Failed to find a suitable MP4 file")
+            raise Exception("No suitable MP4 file found in API response")
+
 
     elif is_tiktok_url(video_url):
         # 틱톡 영상 처리
