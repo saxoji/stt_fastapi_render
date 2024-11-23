@@ -94,23 +94,41 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
 
     if is_youtube_url(video_url):
         # 유튜브 영상 처리
-        api_url = "https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/5880/get+mp4"
+        video_id = video_url.split('v=')[-1] if 'v=' in video_url else video_url.split('/')[-1]
+        api_url = f"https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/6812/youtube+downloader?videoId={video_id}"
         api_headers = {
             'Authorization': f'Bearer {downloader_api_key}'
         }
-        response = requests.get(f"{api_url}?id={video_url.split('v=')[-1]}", headers=api_headers)
+    
+        response = requests.get(api_url, headers=api_headers)
         if response.status_code != 200:
             raise Exception("Failed to retrieve video information from API")
-        data = json.loads(response.text)
-
-        # 특정 지역에서 제한된 영상 처리
-        if data.get('status') == 'fail' and 'description' in data:
-            raise Exception(data['description'] + "\n[해당 동영상은 저작권자의 요청으로 내용만 출력합니다]")
-
-        smallest_mp4_url = next((fmt.get('url') for fmt in data.get('formats', []) if fmt.get('mimeType', '').startswith('video/mp4')), None)
-
-        if smallest_mp4_url:
-            video_response = requests.get(smallest_mp4_url, stream=True)
+    
+        data = response.json()
+    
+        # 'videos' -> 'items' 리스트에서 'url' 추출
+        video_items = data.get('videos', {}).get('items', [])
+        if not video_items:
+            raise Exception("Failed to find video information")
+    
+        # 가능한 최저 화질의 동영상 URL 선택
+        lowest_resolution = float('inf')
+        lowest_mp4_url = None
+    
+        for item in video_items:
+            if item.get('mimeType', '').startswith('video/mp4'):
+                width = item.get('width', 0)
+                height = item.get('height', 0)
+                resolution = width * height
+                if resolution < lowest_resolution:
+                    lowest_resolution = resolution
+                    lowest_mp4_url = item.get('url')
+    
+        if lowest_mp4_url:
+            video_response = requests.get(lowest_mp4_url, stream=True)
+            if video_response.status_code != 200:
+                raise Exception("Failed to download the video")
+    
             video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=1024):
@@ -120,6 +138,32 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         else:
             raise Exception("Failed to find a suitable MP4 file")
 
+    elif is_tiktok_url(video_url):
+        # 틱톡 영상 처리
+        api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
+        api_headers = {
+            'Authorization': f'Bearer {downloader_api_key}'
+        }
+        response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
+        if response.status_code != 200:
+            raise Exception("Failed to retrieve TikTok video information from API")
+
+        data = response.json()
+        download_url = data.get('download_url')
+        if not download_url:
+            raise Exception("Failed to find a download URL for TikTok video")
+
+        video_response = requests.get(download_url, stream=True)
+        if video_response.status_code != 200:
+            raise Exception("Failed to download TikTok video")
+
+        video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+        with open(video_file, 'wb') as file:
+            for chunk in video_response.iter_content(chunk_size=1024):
+                if chunk:
+                    file.write(chunk)
+        video_file_extension = "mp4"
+    
     elif is_instagram_url(video_url):
         # 인스타그램 영상 처리
         normalized_url = normalize_instagram_url(video_url)
