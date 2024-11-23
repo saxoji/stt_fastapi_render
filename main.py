@@ -107,30 +107,36 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 raise Exception("API로부터 동영상 정보를 가져오는 데 실패했습니다.")
 
             data = response.json()
-
-            # 'videos' -> 'items' 리스트에서 'url' 추출
             video_items = data.get('videos', {}).get('items', [])
             if not video_items:
                 raise Exception("동영상 정보를 찾을 수 없습니다.")
 
-            # 가장 낮은 해상도의 MP4 URL 찾기
+            # 다운로드 URL 선택
             download_url = None
             lowest_resolution = float('inf')
 
             for item in video_items:
-                if item.get('mimeType', '').startswith('video/mp4'):
-                    resolution = item.get('width', 0) * item.get('height', 0)
+                if 'url' not in item:
+                    continue
+                if 'mimeType' in item and item['mimeType'].startswith('video/mp4'):
+                    width = item.get('width', 0)
+                    height = item.get('height', 0)
+                    resolution = width * height
                     if resolution > 0 and resolution < lowest_resolution:
                         lowest_resolution = resolution
-                        download_url = item.get('url')
+                        download_url = item['url']
 
-            # 적절한 URL을 찾지 못한 경우 첫 번째 사용 가능한 URL 사용
+            # 만약 MP4를 찾지 못했다면 첫 번째 사용 가능한 URL 사용
             if not download_url and video_items:
-                download_url = video_items[0].get('url')
+                for item in video_items:
+                    if 'url' in item:
+                        download_url = item['url']
+                        break
 
             if not download_url:
                 raise Exception("No suitable video URL found")
 
+            # 비디오 다운로드
             video_response = requests.get(download_url, stream=True)
             video_response.raise_for_status()
             
@@ -201,52 +207,91 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
             try:
                 audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                
+                # AudioFileClip 생성 및 메모리 관리
                 audio_clip = AudioFileClip(video_file)
-                audio_clip.write_audiofile(audio_file)
+                audio_clip.write_audiofile(audio_file, fps=44100, nbytes=2, buffersize=2000, codec='libmp3lame')
+                
+                # 즉시 메모리 해제
                 audio_clip.close()
+                del audio_clip
+                
+                # 비디오 파일 즉시 삭제
+                if os.path.exists(video_file):
+                    os.remove(video_file)
+                    video_file = None
+
+                # 오디오 파일이 제대로 생성되었는지 확인
+                if not os.path.exists(audio_file) or os.path.getsize(audio_file) == 0:
+                    raise Exception("Audio extraction failed: Output file is empty or not created")
+
+                # PyDub으로 오디오 처리
+                audio = AudioSegment.from_file(audio_file)
+                
+                if chunking_method == "silence":
+                    # 무음 기반 분할
+                    chunks = silence.split_on_silence(
+                        audio,
+                        min_silence_len=500,
+                        silence_thresh=audio.dBFS-14,
+                        keep_silence=250
+                    )
+                    
+                    if not chunks:
+                        raise Exception("No audio chunks were created using silence detection")
+                    
+                    for chunk in chunks:
+                        chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                        chunk.export(chunk_file, format="mp3", parameters=["-ac", "1"])
+                        chunk_files.append(chunk_file)
+
+                elif chunking_method == "interval":
+                    # 시간 간격 기반 분할
+                    duration = len(audio)  # ms 단위
+                    interval_ms = interval_seconds * 1000
+                    
+                    for start in range(0, duration, interval_ms):
+                        end = min(start + interval_ms, duration)
+                        chunk = audio[start:end]
+                        
+                        if len(chunk) > 0:  # 빈 청크 방지
+                            chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                            chunk.export(chunk_file, format="mp3", parameters=["-ac", "1"])
+                            chunk_files.append(chunk_file)
+                else:
+                    raise Exception("Invalid chunking method")
+
+                if not chunk_files:
+                    raise Exception("No audio chunks were created")
+
             except Exception as e:
                 raise Exception(f"Failed to extract audio: {str(e)}")
             finally:
+                # 리소스 정리
+                if audio_clip and hasattr(audio_clip, 'close'):
+                    try:
+                        audio_clip.close()
+                        del audio_clip
+                    except:
+                        pass
+                
+                # 임시 파일 정리
                 if video_file and os.path.exists(video_file):
                     os.remove(video_file)
-        else:
-            raise Exception("Unsupported video format for audio extraction")
-
-        # 오디오 파일 처리
-        audio = AudioSegment.from_file(audio_file)
-
-        if chunking_method == "silence":
-            chunks = silence.split_on_silence(
-                audio,
-                min_silence_len=500,
-                silence_thresh=audio.dBFS-14,
-                keep_silence=250
-            )
-            for chunk in chunks:
-                chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-                chunk.export(chunk_file, format="mp3")
-                chunk_files.append(chunk_file)
-
-        elif chunking_method == "interval":
-            duration = len(audio) / 1000  # PyDub에서 길이는 밀리초 단위
-            start_time = 0
-            while start_time < duration:
-                end_time = min(start_time + interval_seconds, duration)
-                chunk = audio[start_time * 1000 : end_time * 1000]
-                chunk_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-                chunk.export(chunk_file, format="mp3")
-                chunk_files.append(chunk_file)
-                start_time += interval_seconds
-        else:
-            raise Exception("Invalid chunking method")
-
-        if not chunk_files:
-            raise Exception("오디오 청크가 생성되지 않았습니다")
+                if audio_file and os.path.exists(audio_file):
+                    os.remove(audio_file)
 
         return chunk_files, caption
 
     except Exception as e:
         # 에러 발생 시 모든 임시 파일 정리
+        if audio_clip and hasattr(audio_clip, 'close'):
+            try:
+                audio_clip.close()
+                del audio_clip
+            except:
+                pass
+        
         if video_file and os.path.exists(video_file):
             os.remove(video_file)
         if audio_file and os.path.exists(audio_file):
