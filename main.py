@@ -208,29 +208,39 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
             try:
                 audio_file = os.path.join(AUDIO_DIR, f"{uuid.uuid4()}.mp3")
+                print(f"Processing video file: {video_file}")
+                print(f"Creating audio file: {audio_file}")
                 
                 # AudioFileClip 생성 및 메모리 관리
-                audio_clip = AudioFileClip(video_file)
-                audio_clip.write_audiofile(audio_file, fps=44100, nbytes=2, buffersize=2000, codec='libmp3lame')
+                try:
+                    audio_clip = AudioFileClip(video_file)
+                    audio_clip.write_audiofile(audio_file, fps=44100, nbytes=2, buffersize=2000, codec='libmp3lame')
+                except Exception as e:
+                    print(f"Error in audio extraction: {str(e)}")
+                    raise
+                finally:
+                    if audio_clip is not None:
+                        try:
+                            audio_clip.close()
+                        except:
+                            pass
+                        audio_clip = None
                 
-                # 즉시 메모리 해제
-                audio_clip.close()
-                del audio_clip
-                
-                # 비디오 파일 즉시 삭제
+                # 오디오 파일이 제대로 생성되었는지 확인
+                if not os.path.exists(audio_file) or os.path.getsize(audio_file) == 0:
+                    raise Exception("Audio extraction failed: Output file is empty or not created")
+
+                # 비디오 파일 삭제
                 if os.path.exists(video_file):
                     os.remove(video_file)
                     video_file = None
 
-                # 오디오 파일이 제대로 생성되었는지 확인
-                if not os.path.exists(audio_file) or os.path.getsize(audio_file) == 0:
-                    raise Exception("Audio extraction failed: Output file is empty or not created")
+                print("Audio file created successfully")
 
                 # PyDub으로 오디오 처리
                 audio = AudioSegment.from_file(audio_file)
                 
                 if chunking_method == "silence":
-                    # 무음 기반 분할
                     chunks = silence.split_on_silence(
                         audio,
                         min_silence_len=500,
@@ -247,8 +257,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                         chunk_files.append(chunk_file)
 
                 elif chunking_method == "interval":
-                    # 시간 간격 기반 분할
-                    duration = len(audio)  # ms 단위
+                    duration = len(audio)
                     interval_ms = interval_seconds * 1000
                     
                     for start in range(0, duration, interval_ms):
@@ -265,34 +274,15 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 if not chunk_files:
                     raise Exception("No audio chunks were created")
 
-            except Exception as e:
-                raise Exception(f"Failed to extract audio: {str(e)}")
-            finally:
-                # 리소스 정리
-                if audio_clip and hasattr(audio_clip, 'close'):
-                    try:
-                        audio_clip.close()
-                        del audio_clip
-                    except:
-                        pass
-                
-                # 임시 파일 정리
-                if video_file and os.path.exists(video_file):
-                    os.remove(video_file)
-                if audio_file and os.path.exists(audio_file):
-                    os.remove(audio_file)
+                print(f"Created {len(chunk_files)} audio chunks")
 
-        return chunk_files, caption
+            except Exception as e:
+                print(f"Error during audio processing: {str(e)}")
+                raise Exception(f"Failed to extract audio: {str(e)}")
 
     except Exception as e:
+        print(f"Error in main process: {str(e)}")
         # 에러 발생 시 모든 임시 파일 정리
-        if audio_clip and hasattr(audio_clip, 'close'):
-            try:
-                audio_clip.close()
-                del audio_clip
-            except:
-                pass
-        
         if video_file and os.path.exists(video_file):
             os.remove(video_file)
         if audio_file and os.path.exists(audio_file):
@@ -304,9 +294,13 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
 
     finally:
         # 메인 오디오 파일 정리
-        if audio_file and os.path.exists(audio_file):
-            os.remove(audio_file)
+        try:
+            if audio_file and os.path.exists(audio_file):
+                os.remove(audio_file)
+        except Exception as e:
+            print(f"Error during cleanup: {str(e)}")
 
+    return chunk_files, caption
 
 # 시간 형식 변환 함수
 def seconds_to_timecode(seconds: int) -> str:
