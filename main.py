@@ -102,42 +102,54 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             video_id = video_url.split('v=')[-1] if 'v=' in video_url else video_url.split('/')[-1]
             api_url = f"https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/6812/youtube+downloader?videoId={video_id}"
             api_headers = {'Authorization': f'Bearer {downloader_api_key}'}
-
+        
             response = requests.get(api_url, headers=api_headers)
             if response.status_code != 200:
                 raise Exception("API로부터 동영상 정보를 가져오는 데 실패했습니다.")
-
+        
             data = response.json()
             video_items = data.get('videos', {}).get('items', [])
             if not video_items:
                 raise Exception("동영상 정보를 찾을 수 없습니다.")
-
-            # 다운로드 URL 선택
+        
+            # 다운로드 URL 선택 로직 수정
             download_url = None
             lowest_resolution = float('inf')
-
+        
+            # 오디오가 포함된 비디오 중에서 최저 해상도 선택
             for item in video_items:
-                if 'url' not in item:
+                if 'url' not in item or 'hasAudio' not in item:
                     continue
-                if 'mimeType' in item and item['mimeType'].startswith('video/mp4'):
+                    
+                if item['hasAudio'] and item.get('mimeType', '').startswith('video/mp4'):
                     width = item.get('width', 0)
                     height = item.get('height', 0)
                     resolution = width * height
+                    
+                    # resolution이 0인 경우 제외
                     if resolution > 0 and resolution < lowest_resolution:
                         lowest_resolution = resolution
                         download_url = item['url']
-
-            # 만약 MP4를 찾지 못했다면 첫 번째 사용 가능한 URL 사용
+            
+            # 첫 번째 백업 시도: 오디오가 있는 어떤 포맷이든 선택
+            if not download_url:
+                for item in video_items:
+                    if item.get('hasAudio', False) and 'url' in item:
+                        download_url = item['url']
+                        break
+            
+            # 두 번째 백업 시도: 어떤 URL이든 선택
             if not download_url and video_items:
                 for item in video_items:
                     if 'url' in item:
                         download_url = item['url']
                         break
-
+        
             if not download_url:
-                raise Exception("No suitable video URL found")
-
+                raise Exception("No suitable video URL with audio found")
+        
             # 비디오 다운로드
+            print(f"Selected video URL with resolution: {lowest_resolution if lowest_resolution != float('inf') else 'unknown'}")
             video_response = requests.get(download_url, stream=True)
             video_response.raise_for_status()
             
@@ -222,10 +234,10 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 audio.write_audiofile(audio_file)
                 
                 # 즉시 리소스 정리
-                #audio.close()
-                #video.close()
-                #del audio
-                #del video
+                audio.close()
+                video.close()
+                del audio
+                del video
                 gc.collect()
                 
                 print("Audio extraction completed")
