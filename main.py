@@ -61,6 +61,10 @@ def is_tiktok_url(url: str) -> bool:
 def is_instagram_url(url: str) -> bool:
     return "instagram.com/reel/" in url or "instagram.com/p/" in url
 
+def is_video_url(url: str) -> bool:
+    video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.ogg', '.webm']
+    return any(url.lower().endswith(ext) for ext in video_extensions)
+
 # 유튜브 URL 표준화 함수
 def normalize_youtube_url(video_url: str) -> str:
     # youtu.be 형식 처리
@@ -87,6 +91,24 @@ def normalize_instagram_url(video_url: str) -> str:
         video_id = video_url.split("/reel/")[-1].split("/")[0]
         return f"https://www.instagram.com/p/{video_id}/"
     return video_url
+
+# 비디오 다운로드 함수 (일반 URL용)
+async def download_direct_video(url: str) -> str:
+    video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception("Failed to download video from URL")
+            
+            with open(video_file, 'wb') as f:
+                while True:
+                    chunk = await response.content.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+    
+    return video_file
+    
 
 # 영상 다운로드 및 오디오 추출 함수
 async def download_video_and_split_audio(video_url: str, interval_seconds: int, downloader_api_key: str, chunking_method: str):
@@ -213,8 +235,16 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                         file.write(chunk)
             video_file_extension = "mp4"
 
+        elif is_video_url(video_url):
+            # 일반 비디오 URL 처리
+            try:
+                video_file = await download_direct_video(video_url)
+                video_file_extension = video_url.split('.')[-1].lower()
+            except Exception as e:
+                raise Exception(f"Failed to download video: {str(e)}")
+
         else:
-            raise Exception("지원되지 않는 비디오 플랫폼입니다")
+            raise Exception("지원되지 않는 비디오 URL 형식입니다")
 
         # 영상에서 오디오 추출
         if video_file_extension and video_file_extension.lower() in ["mp4", "mov", "avi", "mkv", "wmv", "flv", "ogg", "webm"]:
@@ -403,6 +433,8 @@ async def process_youtube_audio(request: YouTubeAudioRequest):
             normalized_video_url = normalize_youtube_url(request.video_url)
         elif is_instagram_url(request.video_url):
             normalized_video_url = normalize_instagram_url(request.video_url)
+        elif is_video_url(request.video_url):
+            normalized_video_url = request.video_url  # 일반 비디오 URL은 그대로 사용
         else:
             normalized_video_url = request.video_url
 
