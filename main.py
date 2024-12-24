@@ -92,22 +92,6 @@ def normalize_instagram_url(video_url: str) -> str:
         return f"https://www.instagram.com/p/{video_id}/"
     return video_url
 
-# 비디오 다운로드 함수 (일반 URL용)
-async def download_direct_video(url: str) -> str:
-    video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status != 200:
-                raise Exception("Failed to download video from URL")
-            
-            with open(video_file, 'wb') as f:
-                while True:
-                    chunk = await response.content.read(8192)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-    
-    return video_file
     
 
 # 영상 다운로드 및 오디오 추출 함수
@@ -236,12 +220,19 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             video_file_extension = "mp4"
 
         elif is_video_url(video_url):
-            # 일반 비디오 URL 처리
-            try:
-                video_file = await download_direct_video(video_url)
-                video_file_extension = video_url.split('.')[-1].lower()
-            except Exception as e:
-                raise Exception(f"Failed to download video: {str(e)}")
+            # 일반 웹 동영상 파일 처리
+            video_response = requests.get(video_url, stream=True)
+            if video_response.status_code != 200:
+                raise HTTPException(status_code=500, detail="제공된 URL에서 동영상 파일을 다운로드하는 데 실패했습니다.")
+            
+            # 원본 확장자로 파일 저장
+            video_file_extension = video_url.split('.')[-1]
+            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.{video_file_extension}")
+            
+            with open(video_file, 'wb') as file:
+                for chunk in video_response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
 
         else:
             raise Exception("지원되지 않는 비디오 URL 형식입니다")
