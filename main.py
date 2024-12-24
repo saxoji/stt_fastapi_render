@@ -12,6 +12,7 @@ import aiohttp
 from pydub import AudioSegment, silence
 import math
 import subprocess
+import yt_dlp
 
 SWAGGER_HEADERS = {
     "title": "LINKBRICKS HORIZON-AI STT API ENGINE",
@@ -105,66 +106,24 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
     try:
         if is_youtube_url(video_url):
             # 유튜브 동영상 처리
-            video_id = video_url.split('v=')[-1] if 'v=' in video_url else video_url.split('/')[-1]
-            api_url = f"https://zylalabs.com/api/3219/youtube+mp4+video+downloader+api/6812/youtube+downloader?videoId={video_id}"
-            api_headers = {'Authorization': f'Bearer {downloader_api_key}'}
-        
-            response = requests.get(api_url, headers=api_headers)
-            if response.status_code != 200:
-                raise Exception("API로부터 동영상 정보를 가져오는 데 실패했습니다.")
-        
-            data = response.json()
-            video_items = data.get('videos', {}).get('items', [])
-            if not video_items:
-                raise Exception("동영상 정보를 찾을 수 없습니다.")
-        
-            # 다운로드 URL 선택 로직 수정
-            download_url = None
-            lowest_resolution = float('inf')
-        
-            # 오디오가 포함된 비디오 중에서 최저 해상도 선택
-            for item in video_items:
-                if 'url' not in item or 'hasAudio' not in item:
-                    continue
+            try:
+                ydl_opts = {
+                    "outtmpl": os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.%(ext)s"),
+                    "format": "w[ext=mp4]",  # mp4 우선
+                    'cookiefile': 'cookie_2.txt',  # 쿠키 파일 경로
+                }
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info_dict = ydl.extract_info(video_url, download=True)
+                    # 실제로 다운로드된 파일 경로를 얻습니다
+                    video_file = ydl.prepare_filename(info_dict)
                     
-                if item['hasAudio'] and item.get('mimeType', '').startswith('video/mp4'):
-                    width = item.get('width', 0)
-                    height = item.get('height', 0)
-                    resolution = width * height
-                    
-                    # resolution이 0인 경우 제외
-                    if resolution > 0 and resolution < lowest_resolution:
-                        lowest_resolution = resolution
-                        download_url = item['url']
-            
-            # 첫 번째 백업 시도: 오디오가 있는 어떤 포맷이든 선택
-            if not download_url:
-                for item in video_items:
-                    if item.get('hasAudio', False) and 'url' in item:
-                        download_url = item['url']
-                        break
-            
-            # 두 번째 백업 시도: 어떤 URL이든 선택
-            if not download_url and video_items:
-                for item in video_items:
-                    if 'url' in item:
-                        download_url = item['url']
-                        break
+                print("유튜브 동영상 다운로드 완료:", video_file)
+                video_file_extension = "mp4"
         
-            if not download_url:
-                raise Exception("No suitable video URL with audio found")
-        
-            # 비디오 다운로드
-            print(f"Selected video URL with resolution: {lowest_resolution if lowest_resolution != float('inf') else 'unknown'}")
-            video_response = requests.get(download_url, stream=True)
-            video_response.raise_for_status()
-            
-            video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
-            with open(video_file, 'wb') as file:
-                for chunk in video_response.iter_content(chunk_size=8192):
-                    if chunk:
-                        file.write(chunk)
-            video_file_extension = "mp4"
+            except Exception as e:
+                print("유튜브 다운로드 중 에러 발생:", e)
+                raise Exception(f"유튜브 동영상을 다운로드하는 중 오류 발생: {e}")
 
         elif is_tiktok_url(video_url):
             # 틱톡 영상 처리
