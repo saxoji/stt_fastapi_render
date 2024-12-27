@@ -51,6 +51,7 @@ class YouTubeAudioRequest(BaseModel):
     downloader_api_key: str
     summary_flag: int
     chunking_method: str
+    cobalt_url: str  # cobalt API URL
 
 # URL 확인 함수들
 def is_youtube_url(url: str) -> bool:
@@ -113,7 +114,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
             while retry_count < max_retries:
                 try:
                     # API 서버에 POST 요청
-                    api_url = "https://cobalt-s0bc.onrender.com"
+                    api_url = cobalt_url
                     headers = {
                         'Accept': 'application/json',
                         'Content-Type': 'application/json'
