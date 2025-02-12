@@ -203,7 +203,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
         elif is_instagram_url(video_url):
             # 인스타그램 영상 처리
             normalized_url = normalize_instagram_url(video_url)
-            api_url = f"https://zylalabs.com/api/1943/instagram+reels+downloader+api/2944/reel+downloader?url={normalized_url}"
+            api_url = f"https://zylalabs.com/api/2828/reel+downloader+for+instagram+api/6999/reel+downloader?url={normalized_url}"
             headers = {'Authorization': f'Bearer {downloader_api_key}'}
             
             response = requests.get(api_url, headers=headers)
@@ -211,19 +211,16 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 raise Exception("Failed to retrieve Instagram video information from API")
 
             data = response.json()
-            video_download_url = data.get("video")
-            caption = data.get("caption", "")
-
-            if not video_download_url:
-                raise Exception("Failed to find a suitable video file for Instagram video")
-
-            video_response = requests.get(video_download_url, stream=True)
-            if video_response.status_code != 200:
-                raise Exception("Failed to download Instagram video")
-
+            if not data.get('media') or not data['media'][0].get('url'):
+                raise HTTPException(status_code=500, detail="적절한 MP4 파일을 찾을 수 없습니다.")
+    
+            download_url = data['media'][0]['url']
+            print(f"Downloading from URL: {download_url}")
+    
+            video_response = requests.get(download_url, stream=True)
             video_file = os.path.join(VIDEO_DIR, f"{uuid.uuid4()}.mp4")
             with open(video_file, 'wb') as file:
-                for chunk in video_response.iter_content(chunk_size=8192):
+                for chunk in video_response.iter_content(chunk_size=1024):
                     if chunk:
                         file.write(chunk)
             video_file_extension = "mp4"
