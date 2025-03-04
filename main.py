@@ -177,7 +177,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
 
         elif is_tiktok_url(video_url):
             # 틱톡 영상 처리
-            api_url = "https://zylalabs.com/api/4640/tiktok+download+connector+api/5719/download+video"
+            api_url = "https://zylalabs.com/api/5271/snaptik+video+api/6790/fetch+tiktok+video"
             api_headers = {'Authorization': f'Bearer {downloader_api_key}'}
             
             response = requests.get(f"{api_url}?url={video_url}", headers=api_headers)
@@ -185,7 +185,7 @@ async def download_video_and_split_audio(video_url: str, interval_seconds: int, 
                 raise Exception("Failed to retrieve TikTok video information from API")
 
             data = response.json()
-            download_url = data.get('download_url')
+            download_url = data.get('play')
             if not download_url:
                 raise Exception("Failed to find a download URL for TikTok video")
 
